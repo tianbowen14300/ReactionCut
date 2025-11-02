@@ -195,14 +195,32 @@ public class FrontendPartDownloadServiceImpl implements FrontendPartDownloadServ
                         if (actualVideoUrl != null) {
                             log.info("获取到视频流URL: {}", actualVideoUrl);
                             
-                            // Download video using FFmpeg to main folder
-                            String localPath = ffmpegUtil.downloadVideoToDirectory(actualVideoUrl, outputFileName, mainFolderPath.toString());
+                            // Download video using FFmpeg to main folder with progress tracking
+                            String localPath = ffmpegUtil.downloadVideoToDirectoryWithProgress(actualVideoUrl, outputFileName, mainFolderPath.toString(), 
+                                new com.tbw.cut.utils.FFmpegUtil.ProgressCallback() {
+                                    @Override
+                                    public void onProgress(int progress) {
+                                        // 更新part任务进度
+                                        partDownloadService.updatePartProgress(partTaskId, progress);
+                                        log.debug("更新分P任务进度，任务ID: {}, 进度: {}%", partTaskId, progress);
+                                    }
+                                });
                             
                             if (localPath != null) {
-                                log.info("Part {} 下载成功: {}", cid, localPath);
-                                
-                                // 更新part任务为完成状态
-                                partDownloadService.completePartDownload(partTaskId, localPath);
+                                // 检查文件是否真正存在且大小合理
+                                java.io.File downloadedFile = new java.io.File(localPath);
+                                if (downloadedFile.exists() && downloadedFile.length() > 0) {
+                                    log.info("Part {} 下载成功: {}", cid, localPath);
+                                    
+                                    // 更新part任务为完成状态
+                                    partDownloadService.completePartDownload(partTaskId, localPath);
+                                } else {
+                                    log.error("Part {} 下载文件验证失败，文件不存在或大小为0", cid);
+                                    allSuccess = false;
+                                    
+                                    // 更新part任务为失败状态
+                                    partDownloadService.failPartDownload(partTaskId, "下载文件验证失败");
+                                }
                             } else {
                                 log.error("Part {} 下载失败", cid);
                                 allSuccess = false;
