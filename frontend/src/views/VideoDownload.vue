@@ -429,20 +429,13 @@ export default {
           this.selectedParts = []
           this.$refs.multipleTable && this.$refs.multipleTable.clearSelection()
           
-          // 解析可用的下载配置
-          this.parseAvailableResolutions(response.data)
-          this.parseAvailableCodecs(response.data)
-          this.parseAvailableFormats(response.data)
-          
-          // 设置默认下载配置（仅当还没有设置默认值时）
-          if (!this.downloadConfig.resolution && this.availableResolutions.length > 0) {
-            this.downloadConfig.resolution = this.availableResolutions[0].value
-          }
-          if (!this.downloadConfig.codec && this.availableCodecs.length > 0) {
-            this.downloadConfig.codec = this.availableCodecs[0].value
-          }
-          if (!this.downloadConfig.format && this.availableFormats.length > 0) {
-            this.downloadConfig.format = this.availableFormats[0].value
+          // 获取第一个分P的视频流信息用于解析分辨率等配置
+          if (this.videoParts.length > 0) {
+            const firstPart = this.videoParts[0]
+            await this.fetchVideoStreamInfo(videoId, firstPart.id)
+          } else {
+            // 如果没有分P信息，使用默认配置
+            this.setupDefaultConfigs()
           }
           
           // 设置默认下载名称为视频标题
@@ -456,6 +449,49 @@ export default {
         this.$message.error('搜索失败: ' + error.message)
       } finally {
         this.searching = false
+      }
+    },
+    
+    // 获取视频流信息
+    async fetchVideoStreamInfo(videoId, cid) {
+      try {
+        let streamResponse
+        const params = {
+          fnval: 4048, // 获取所有DASH格式
+          fourk: 1     // 允许4K
+        }
+        
+        if (videoId.bvid) {
+          streamResponse = await getVideoPlayUrl(videoId.bvid, cid, params)
+        } else if (videoId.aid) {
+          streamResponse = await getVideoPlayUrlByAid(videoId.aid, cid, params)
+        }
+        
+        if (streamResponse && streamResponse.code === 0) {
+          // 解析可用的下载配置
+          this.parseAvailableResolutions(streamResponse.data)
+          this.parseAvailableCodecs(streamResponse.data)
+          this.parseAvailableFormats(streamResponse.data)
+          
+          // 设置默认下载配置（仅当还没有设置默认值时）
+          if (!this.downloadConfig.resolution && this.availableResolutions.length > 0) {
+            this.downloadConfig.resolution = this.availableResolutions[0].value
+          }
+          if (!this.downloadConfig.codec && this.availableCodecs.length > 0) {
+            this.downloadConfig.codec = this.availableCodecs[0].value
+          }
+          if (!this.downloadConfig.format && this.availableFormats.length > 0) {
+            this.downloadConfig.format = this.availableFormats[0].value
+          }
+        } else {
+          console.error('获取视频流信息失败:', streamResponse ? streamResponse.message : '无响应')
+          // 如果获取流信息失败，使用默认配置
+          this.setupDefaultConfigs()
+        }
+      } catch (error) {
+        console.error('获取视频流信息异常:', error)
+        // 如果获取流信息异常，使用默认配置
+        this.setupDefaultConfigs()
       }
     },
     
