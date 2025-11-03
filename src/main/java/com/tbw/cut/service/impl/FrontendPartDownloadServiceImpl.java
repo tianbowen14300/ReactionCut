@@ -1,5 +1,6 @@
 package com.tbw.cut.service.impl;
 
+import com.tbw.cut.entity.DownloadTask;
 import com.tbw.cut.service.FrontendPartDownloadService;
 import com.tbw.cut.utils.FFmpegUtil;
 import com.tbw.cut.bilibili.BilibiliService;
@@ -57,8 +58,24 @@ public class FrontendPartDownloadServiceImpl implements FrontendPartDownloadServ
     }
     
     @Override
-    public void downloadParts(Long taskId, String videoUrl, String bvid, String aid, 
-                             List<Map<String, Object>> parts, Map<String, Object> config) {
+    public void addDownloadTask(DownloadTask downloadTask) {
+        // 将任务提交给DownloadTaskManager处理
+        // 这样可以确保任务在队列中按顺序执行，并且可以控制并发数量
+        downloadTaskManager.addDownloadTask(downloadTask);
+    }
+    
+    @Override
+    public void executeDownload(DownloadTask downloadTask) {
+        // 执行实际的下载逻辑
+        executeDownload(downloadTask.getId(), downloadTask.getVideoUrl(), downloadTask.getBvid(), 
+                       downloadTask.getAid(), downloadTask.getParts(), downloadTask.getConfig());
+    }
+    
+    /**
+     * 执行实际的下载逻辑
+     */
+    public void executeDownload(Long taskId, String videoUrl, String bvid, String aid, 
+                               List<Map<String, Object>> parts, Map<String, Object> config) {
         new Thread(() -> {
             try {
                 // 获取视频标题
@@ -150,21 +167,7 @@ public class FrontendPartDownloadServiceImpl implements FrontendPartDownloadServ
                     }
                 }
                 
-                // 将每个part任务添加到下载队列中
-                for (Long partTaskId : partTaskIds) {
-                    com.tbw.cut.entity.VideoDownload partTask = partDownloadService.getById(partTaskId);
-                    if (partTask != null) {
-                        // 添加到下载队列
-                        boolean added = downloadTaskManager.addDownloadTask(partTask);
-                        if (added) {
-                            log.info("成功将分P任务添加到下载队列，任务ID: {}", partTaskId);
-                        } else {
-                            log.error("将分P任务添加到下载队列失败，任务ID: {}", partTaskId);
-                        }
-                    }
-                }
-                
-                // 下载每个part（直接下载，不使用队列）
+                // 下载每个part
                 boolean allSuccess = true;
                 
                 for (int i = 0; i < parts.size(); i++) {
@@ -196,38 +199,39 @@ public class FrontendPartDownloadServiceImpl implements FrontendPartDownloadServ
                             log.info("获取到视频流URL: {}", actualVideoUrl);
                             
                             // Download video using FFmpeg to main folder with progress tracking
+                            // 进度更新完全依赖于 FFmpegUtil.ProgressCallback
                             String localPath = ffmpegUtil.downloadVideoToDirectoryWithProgress(actualVideoUrl, outputFileName, mainFolderPath.toString(), 
                                 new com.tbw.cut.utils.FFmpegUtil.ProgressCallback() {
                                     @Override
                                     public void onProgress(int progress) {
-                                        // 更新part任务进度
+                                        // 更新part任务进度，确保进度不会回退
                                         partDownloadService.updatePartProgress(partTaskId, progress);
                                         log.debug("更新分P任务进度，任务ID: {}, 进度: {}%", partTaskId, progress);
                                     }
                                 });
                             
-                            if (localPath != null) {
-                                // 检查文件是否真正存在且大小合理
-                                java.io.File downloadedFile = new java.io.File(localPath);
-                                if (downloadedFile.exists() && downloadedFile.length() > 0) {
-                                    log.info("Part {} 下载成功: {}", cid, localPath);
-                                    
-                                    // 更新part任务为完成状态
-                                    partDownloadService.completePartDownload(partTaskId, localPath);
+                                if (localPath != null) {
+                                    // 检查文件是否真正存在且大小合理
+                                    java.io.File downloadedFile = new java.io.File(localPath);
+                                    if (downloadedFile.exists() && downloadedFile.length() > 0) {
+                                        log.info("Part {} 下载成功: {}", cid, localPath);
+                                        
+                                        // 更新part任务为完成状态
+                                        partDownloadService.completePartDownload(partTaskId, localPath);
+                                    } else {
+                                        log.error("Part {} 下载文件验证失败，文件不存在或大小为0", cid);
+                                        allSuccess = false;
+                                        
+                                        // 更新part任务为失败状态
+                                        partDownloadService.failPartDownload(partTaskId, "下载文件验证失败");
+                                    }
                                 } else {
-                                    log.error("Part {} 下载文件验证失败，文件不存在或大小为0", cid);
+                                    log.error("Part {} 下载失败", cid);
                                     allSuccess = false;
                                     
                                     // 更新part任务为失败状态
-                                    partDownloadService.failPartDownload(partTaskId, "下载文件验证失败");
+                                    partDownloadService.failPartDownload(partTaskId, "下载失败");
                                 }
-                            } else {
-                                log.error("Part {} 下载失败", cid);
-                                allSuccess = false;
-                                
-                                // 更新part任务为失败状态
-                                partDownloadService.failPartDownload(partTaskId, "下载失败");
-                            }
                         } else {
                             log.error("无法获取Part {} 的视频流URL", cid);
                             allSuccess = false;
@@ -245,6 +249,14 @@ public class FrontendPartDownloadServiceImpl implements FrontendPartDownloadServ
                 log.error("下载Parts时发生异常", e);
             }
         }).start();
+    }
+    
+    /**
+     * 添加静态方法执行下载逻辑，避免循环依赖
+     */
+    public static void executeDownloadLogic(FrontendPartDownloadServiceImpl service, DownloadTask downloadTask) {
+        service.executeDownload(downloadTask.getId(), downloadTask.getVideoUrl(), downloadTask.getBvid(), 
+                               downloadTask.getAid(), downloadTask.getParts(), downloadTask.getConfig());
     }
     
     /**

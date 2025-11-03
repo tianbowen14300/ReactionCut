@@ -6,6 +6,8 @@ import com.tbw.cut.service.FrontendVideoDownloadService;
 import com.tbw.cut.service.FrontendPartDownloadService;
 import com.tbw.cut.service.VideoDownloadService;
 import com.tbw.cut.bilibili.BilibiliService;
+import com.tbw.cut.entity.DownloadTask;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -32,7 +34,8 @@ public class FrontendVideoDownloadServiceImpl implements FrontendVideoDownloadSe
         try {
             // 检查是否是前端新格式（包含parts字段）
             if (requestData.containsKey("parts") && requestData.get("parts") instanceof List) {
-                return handleFrontendPartDownload(requestData);
+                // 使用DownloadTaskManager来管理下载任务
+                return handleFrontendPartDownloadWithQueue(requestData);
             } else {
                 // 使用旧格式处理
                 VideoDownloadDTO downloadDTO = convertToBackendDTO(requestData);
@@ -45,9 +48,9 @@ public class FrontendVideoDownloadServiceImpl implements FrontendVideoDownloadSe
     }
     
     /**
-     * 处理前端part下载请求
+     * 处理前端part下载请求，使用队列管理
      */
-    private Long handleFrontendPartDownload(Map<String, Object> requestData) {
+    private Long handleFrontendPartDownloadWithQueue(Map<String, Object> requestData) {
         try {
             String videoUrl = (String) requestData.get("videoUrl");
             List<Map<String, Object>> parts = (List<Map<String, Object>>) requestData.get("parts");
@@ -64,8 +67,11 @@ public class FrontendVideoDownloadServiceImpl implements FrontendVideoDownloadSe
             // 创建一个临时的任务ID（仅用于标识这次下载请求）
             Long taskId = System.currentTimeMillis(); // 使用时间戳作为临时ID
             
-            // Execute download task asynchronously
-            frontendPartDownloadService.downloadParts(taskId, videoUrl, bvid, aid, parts, config);
+            // 创建下载任务对象
+            DownloadTask downloadTask = new DownloadTask(taskId, videoUrl, bvid, aid, parts, config);
+            
+            // 将任务添加到DownloadTaskManager队列中
+            frontendPartDownloadService.addDownloadTask(downloadTask);
             
             return taskId;
         } catch (Exception e) {

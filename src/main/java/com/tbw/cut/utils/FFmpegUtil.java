@@ -165,37 +165,87 @@ public class FFmpegUtil {
             command.add("copy");
             command.add("-y"); // 覆盖输出文件
             command.add("-progress");
-            command.add("pipe:1"); // 输出进度信息到标准输出
+            command.add("pipe:2"); // 输出进度信息到标准错误流
             command.add(outputPath);
             
             log.info("Downloading video with progress tracking: {}", String.join(" ", command));
             
             ProcessBuilder processBuilder = new ProcessBuilder(command);
+            // 重定向错误流到输出流，这样可以同时读取进度和日志
+            processBuilder.redirectErrorStream(false); // 不合并错误流和输出流
             Process process = processBuilder.start();
             
-            // 读取进度信息
+            // 启动一个线程专门读取标准错误流（进度信息）
+            final int[] lastProgress = {0};
+            Thread progressThread = new Thread(() -> {
+                try (BufferedReader errorReader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
+                    String line;
+                    long lastUpdateTime = System.currentTimeMillis();
+                    long totalDuration = 0; // 视频总时长（微秒）
+                    long currentDuration = 0; // 当前已下载时长（微秒）
+                    final int MIN_UPDATE_INTERVAL_MS = 500; // 最小更新间隔 500ms
+                    
+                    while ((line = errorReader.readLine()) != null) {
+                        if (line.startsWith("total_duration=")) {
+                            // 获取视频总时长
+                            try {
+                                totalDuration = Long.parseLong(line.substring(15));
+                                log.debug("Total duration: {} microseconds", totalDuration);
+                            } catch (NumberFormatException e) {
+                                log.warn("Failed to parse total duration: {}", line);
+                            }
+                        } else if (line.startsWith("out_time_us=")) {
+                            // 解析时间信息并计算进度
+                            try {
+                                currentDuration = Long.parseLong(line.substring(12));
+                                log.debug("Current duration: {} microseconds", currentDuration);
+                                
+                                int currentProgress = 0;
+                                if (totalDuration > 0) {
+                                    // 正常计算进度
+                                    currentProgress = (int) ((currentDuration * 100) / totalDuration);
+                                    currentProgress = Math.max(0, Math.min(99, currentProgress)); // 限制在 0-99
+                                    
+                                    // 只有当能计算出有效进度时才进行推送
+                                    if (currentProgress >= 0 && currentProgress <= 99) {
+                                        // 确保进度递增
+                                        if (currentProgress > lastProgress[0]) {
+                                            long currentTime = System.currentTimeMillis();
+                                            
+                                            // 频率控制：每 500ms 或进度变化大于 2% 时更新
+                                            if (currentTime - lastUpdateTime > MIN_UPDATE_INTERVAL_MS || currentProgress - lastProgress[0] >= 2) {
+                                                if (progressCallback != null) {
+                                                    progressCallback.onProgress(currentProgress);
+                                                    lastProgress[0] = currentProgress;
+                                                }
+                                                lastUpdateTime = currentTime;
+                                            }
+                                        }
+                                    }
+                                }
+                                // 如果totalDuration为0，不进行任何进度推送
+                            } catch (NumberFormatException e) {
+                                log.warn("Failed to parse out_time_us: {}", line);
+                            }
+                        } else if (line.startsWith("progress=end")) {
+                            log.info("Download progress ended");
+                            // 不在这里报告100%进度，而是在进程真正结束后报告
+                        } else {
+                            // 其他日志信息直接输出
+                            log.debug("FFmpeg output: {}", line);
+                        }
+                    }
+                } catch (IOException e) {
+                    log.error("Error reading FFmpeg progress", e);
+                }
+            });
+            progressThread.start();
+            
+            // 读取标准输出（如果有）
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
             String line;
-            long lastUpdateTime = System.currentTimeMillis();
-            
             while ((line = reader.readLine()) != null) {
-                if (line.startsWith("out_time=")) {
-                    // 解析时间信息并计算进度
-                    String timeStr = line.substring(9);
-                    log.debug("Download time progress: {}", timeStr);
-                    
-                    // 每隔一段时间更新进度，避免过于频繁
-                    long currentTime = System.currentTimeMillis();
-                    if (currentTime - lastUpdateTime > 1000) { // 每秒更新一次
-                        if (progressCallback != null) {
-                            // 这里简化处理，实际应该根据视频总时长计算百分比
-                            progressCallback.onProgress(0); // 临时设置为0，需要实际计算
-                        }
-                        lastUpdateTime = currentTime;
-                    }
-                } else if (line.startsWith("progress=end")) {
-                    log.info("Download progress ended");
-                }
+                log.debug("FFmpeg stdout: {}", line);
             }
             
             // 等待进程结束
@@ -206,10 +256,28 @@ public class FFmpegUtil {
                 return null;
             }
             
+            // 等待进度线程结束
+            try {
+                progressThread.join(5000); // 等待最多5秒
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            
             int exitCode = process.exitValue();
             if (exitCode == 0) {
-                log.info("Video download completed: {}", outputPath);
-                return outputPath;
+                // 检查文件是否真正存在且大小合理
+                File downloadedFile = new File(outputPath);
+                if (downloadedFile.exists() && downloadedFile.length() > 0) {
+                    log.info("Video download completed: {}", outputPath);
+                    // 只有在下载真正完成时才报告100%进度
+                    if (progressCallback != null && lastProgress[0] < 100) {
+                        progressCallback.onProgress(100);
+                    }
+                    return outputPath;
+                } else {
+                    log.error("Video download failed: file not found or empty");
+                    return null;
+                }
             } else {
                 log.error("Video download failed with exit code: {}", exitCode);
                 return null;

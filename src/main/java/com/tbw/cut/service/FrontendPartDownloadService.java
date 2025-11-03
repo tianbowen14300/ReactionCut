@@ -1,21 +1,22 @@
 package com.tbw.cut.service;
 
-import com.tbw.cut.dto.VideoDownloadDTO;
+import com.tbw.cut.entity.DownloadTask;
 
-import java.util.Map;
 import java.util.List;
+import java.util.Map;
 
 public interface FrontendPartDownloadService {
     
+
     /**
-     * 处理前端传递的parts信息下载
-     * @param taskId 任务ID
-     * @param videoUrl 视频URL
-     * @param bvid BV ID
-     * @param aid AV ID
-     * @param parts 前端传递的parts信息
-     * @param config 下载配置
+     * 添加下载任务到队列
+     * @param downloadTask 下载任务
      */
-    void downloadParts(Long taskId, String videoUrl, String bvid, String aid, 
-                      List<Map<String, Object>> parts, Map<String, Object> config);
+    void addDownloadTask(DownloadTask downloadTask);
+    
+    /**
+     * 执行下载任务
+     * @param downloadTask 下载任务
+     */
+    void executeDownload(DownloadTask downloadTask);
 }

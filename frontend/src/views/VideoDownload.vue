@@ -343,7 +343,7 @@ import {
   getCompletedDownloads,
   deleteDownloadRecord
 } from '@/api/video'
-import { getVideoDetail, getVideoDetailByAid, getVideoPlayUrl } from '@/api/video'
+import { getVideoDetail, getVideoDetailByAid, getVideoPlayUrl, getVideoPlayUrlByAid } from '@/api/video'
 
 export default {
   name: 'VideoDownload',
@@ -373,7 +373,9 @@ export default {
       activeRecordTab: 'pending',
       pendingDownloads: [],
       downloadingDownloads: [],
-      completedDownloads: []
+      completedDownloads: [],
+      // WebSocket连接
+      websocket: null
     }
   },
   mounted() {
@@ -384,8 +386,92 @@ export default {
     
     // 加载下载记录
     this.loadDownloadRecords();
+    
+    // 建立WebSocket连接
+    this.connectWebSocket();
+  },
+  beforeDestroy() {
+    // 组件销毁前关闭WebSocket连接
+    this.closeWebSocket();
   },
   methods: {
+    // 建立WebSocket连接
+    connectWebSocket() {
+      try {
+        // 修改WebSocket连接URL，使用正确的端口
+        // 前端运行在8100端口，但WebSocket应该连接到后端的8080端口
+        const wsUrl = `ws://localhost:8080/ws/download-progress`;
+        this.websocket = new WebSocket(wsUrl);
+        
+        this.websocket.onopen = () => {
+          console.log('WebSocket连接已建立');
+        };
+        
+        this.websocket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'progress') {
+              this.updateDownloadProgress(data.taskId, data.progress);
+            } else if (data.type === 'status') {
+              this.updateDownloadStatus(data.taskId, data.status);
+            }
+          } catch (e) {
+            console.error('解析WebSocket消息失败:', e);
+          }
+        };
+        
+        this.websocket.onclose = () => {
+          console.log('WebSocket连接已关闭');
+        };
+        
+        this.websocket.onerror = (error) => {
+          console.error('WebSocket连接错误:', error);
+        };
+      } catch (e) {
+        console.error('建立WebSocket连接失败:', e);
+      }
+    },
+    
+    // 关闭WebSocket连接
+    closeWebSocket() {
+      if (this.websocket) {
+        this.websocket.close();
+        this.websocket = null;
+      }
+    },
+    
+    // 更新下载进度
+    updateDownloadProgress(taskId, progress) {
+      // 更新下载中列表的进度
+      const downloadingIndex = this.downloadingDownloads.findIndex(item => item.id === taskId);
+      if (downloadingIndex !== -1) {
+        this.$set(this.downloadingDownloads[downloadingIndex], 'progress', progress);
+        console.log('更新下载中任务进度:', taskId, progress);
+      }
+      
+      // 更新已完成列表的进度（如果任务已完成）
+      const completedIndex = this.completedDownloads.findIndex(item => item.id === taskId);
+      if (completedIndex !== -1) {
+        this.$set(this.completedDownloads[completedIndex], 'progress', progress);
+        console.log('更新已完成任务进度:', taskId, progress);
+      }
+    },
+    
+    // 更新下载状态
+    updateDownloadStatus(taskId, status) {
+      // 更新下载中列表的状态
+      const downloadingIndex = this.downloadingDownloads.findIndex(item => item.id === taskId);
+      if (downloadingIndex !== -1) {
+        this.$set(this.downloadingDownloads[downloadingIndex], 'status', status);
+      }
+      
+      // 更新已完成列表的状态
+      const completedIndex = this.completedDownloads.findIndex(item => item.id === taskId);
+      if (completedIndex !== -1) {
+        this.$set(this.completedDownloads[completedIndex], 'status', status);
+      }
+    },
+    
     // 搜索视频
     async searchVideo() {
       if (!this.searchInput) {
@@ -449,49 +535,6 @@ export default {
         this.$message.error('搜索失败: ' + error.message)
       } finally {
         this.searching = false
-      }
-    },
-    
-    // 获取视频流信息
-    async fetchVideoStreamInfo(videoId, cid) {
-      try {
-        let streamResponse
-        const params = {
-          fnval: 4048, // 获取所有DASH格式
-          fourk: 1     // 允许4K
-        }
-        
-        if (videoId.bvid) {
-          streamResponse = await getVideoPlayUrl(videoId.bvid, cid, params)
-        } else if (videoId.aid) {
-          streamResponse = await getVideoPlayUrlByAid(videoId.aid, cid, params)
-        }
-        
-        if (streamResponse && streamResponse.code === 0) {
-          // 解析可用的下载配置
-          this.parseAvailableResolutions(streamResponse.data)
-          this.parseAvailableCodecs(streamResponse.data)
-          this.parseAvailableFormats(streamResponse.data)
-          
-          // 设置默认下载配置（仅当还没有设置默认值时）
-          if (!this.downloadConfig.resolution && this.availableResolutions.length > 0) {
-            this.downloadConfig.resolution = this.availableResolutions[0].value
-          }
-          if (!this.downloadConfig.codec && this.availableCodecs.length > 0) {
-            this.downloadConfig.codec = this.availableCodecs[0].value
-          }
-          if (!this.downloadConfig.format && this.availableFormats.length > 0) {
-            this.downloadConfig.format = this.availableFormats[0].value
-          }
-        } else {
-          console.error('获取视频流信息失败:', streamResponse ? streamResponse.message : '无响应')
-          // 如果获取流信息失败，使用默认配置
-          this.setupDefaultConfigs()
-        }
-      } catch (error) {
-        console.error('获取视频流信息异常:', error)
-        // 如果获取流信息异常，使用默认配置
-        this.setupDefaultConfigs()
       }
     },
     
@@ -636,9 +679,9 @@ export default {
       // 如果没有编码格式信息，设置默认值
       if (this.availableCodecs.length === 0) {
         this.availableCodecs = [
-          { value: 'h264', label: 'H.264' },
-          { value: 'h265', label: 'H.265' },
-          { value: 'vp9', label: 'VP9' }
+          { value: 'avc1.640032', label: 'H.264' },
+          { value: 'hev1.1.6.L150.90', label: 'H.265' },
+          { value: 'vp09.00.41.08.01.01.01.01', label: 'VP9' }
         ]
       }
     },
@@ -662,6 +705,80 @@ export default {
           { value: 'dash', label: 'DASH' },
           { value: 'mp4', label: 'MP4' }
         ]
+      }
+    },
+    
+    // 获取视频流信息
+    async fetchVideoStreamInfo(videoId, cid) {
+      try {
+        let streamResponse
+        const params = {
+          fnval: 4048, // 获取所有DASH格式
+          fourk: 1     // 允许4K
+        }
+        
+        if (videoId.bvid) {
+          streamResponse = await getVideoPlayUrl(videoId.bvid, cid, params)
+        } else if (videoId.aid) {
+          streamResponse = await getVideoPlayUrlByAid(videoId.aid, cid, params)
+        }
+        
+        if (streamResponse && streamResponse.code === 0) {
+          // 解析可用的下载配置
+          this.parseAvailableResolutions(streamResponse.data)
+          this.parseAvailableCodecs(streamResponse.data)
+          this.parseAvailableFormats(streamResponse.data)
+          
+          // 设置默认下载配置（仅当还没有设置默认值时）
+          if (!this.downloadConfig.resolution && this.availableResolutions.length > 0) {
+            this.downloadConfig.resolution = this.availableResolutions[0].value
+          }
+          if (!this.downloadConfig.codec && this.availableCodecs.length > 0) {
+            this.downloadConfig.codec = this.availableCodecs[0].value
+          }
+          if (!this.downloadConfig.format && this.availableFormats.length > 0) {
+            this.downloadConfig.format = this.availableFormats[0].value
+          }
+        } else {
+          console.error('获取视频流信息失败:', streamResponse ? streamResponse.message : '无响应')
+          // 如果获取流信息失败，使用默认配置
+          this.setupDefaultConfigs()
+        }
+      } catch (error) {
+        console.error('获取视频流信息异常:', error)
+        // 如果获取流信息异常，使用默认配置
+        this.setupDefaultConfigs()
+      }
+    },
+    
+    // 设置默认下载配置
+    setupDefaultConfigs() {
+      this.availableResolutions = [
+        { value: '64', label: '720P 高清' },
+        { value: '80', label: '1080P 高清' },
+        { value: '112', label: '1080P+ 高码率' }
+      ]
+      
+      this.availableCodecs = [
+        { value: 'avc1.640032', label: 'H.264' },
+        { value: 'hev1.1.6.L150.90', label: 'H.265' },
+        { value: 'vp09.00.41.08.01.01.01.01', label: 'VP9' }
+      ]
+      
+      this.availableFormats = [
+        { value: 'dash', label: 'DASH' },
+        { value: 'mp4', label: 'MP4' }
+      ]
+      
+      // 设置默认值
+      if (!this.downloadConfig.resolution) {
+        this.downloadConfig.resolution = '64'
+      }
+      if (!this.downloadConfig.codec) {
+        this.downloadConfig.codec = 'avc1.640032'
+      }
+      if (!this.downloadConfig.format) {
+        this.downloadConfig.format = 'dash'
       }
     },
     
@@ -700,9 +817,10 @@ export default {
     // 开始下载
     async startDownload() {
       try {
-        // 构造下载参数
         const downloadParams = {
-          videoUrl: `https://www.bilibili.com/video/${this.videoInfo.bvid}`,
+          videoUrl: this.videoInfo.bvid ? 
+            `https://www.bilibili.com/video/${this.videoInfo.bvid}` : 
+            `https://www.bilibili.com/video/av${this.videoInfo.aid}`,
           parts: this.selectedParts.map(part => ({
             cid: part.id,
             title: part.part
@@ -974,22 +1092,18 @@ export default {
   margin-bottom: 15px;
 }
 
+.parts-title {
+  font-size: 16px;
+  font-weight: bold;
+}
+
 .parts-actions {
   display: flex;
   gap: 10px;
 }
 
-/* 下载记录样式 */
-.download-tabs {
-  margin-top: 20px;
-}
-
-.record-tabs {
-  min-height: 400px;
-}
-
 .download-list {
-  padding: 20px;
+  min-height: 300px;
 }
 
 .download-item {
@@ -1013,11 +1127,17 @@ export default {
   color: #303133;
 }
 
+.item-actions {
+  display: flex;
+  gap: 10px;
+}
+
 .item-config {
   display: flex;
   flex-wrap: wrap;
   gap: 15px;
   margin-bottom: 10px;
+  font-size: 14px;
 }
 
 .config-item {
@@ -1026,14 +1146,13 @@ export default {
 }
 
 .config-label {
-  font-size: 12px;
   color: #909399;
   margin-right: 5px;
 }
 
 .config-value {
-  font-size: 12px;
   color: #606266;
+  font-weight: 500;
 }
 
 .item-progress {
@@ -1049,5 +1168,6 @@ export default {
   text-align: center;
   color: #909399;
   padding: 50px 0;
+  font-size: 14px;
 }
 </style>

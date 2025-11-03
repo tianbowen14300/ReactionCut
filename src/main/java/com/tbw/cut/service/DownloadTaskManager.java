@@ -1,7 +1,9 @@
 package com.tbw.cut.service;
 
 import com.tbw.cut.config.DownloadConfig;
+import com.tbw.cut.entity.DownloadTask;
 import com.tbw.cut.entity.VideoDownload;
+import com.tbw.cut.service.impl.FrontendPartDownloadServiceImpl;
 import com.tbw.cut.service.impl.VideoDownloadServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +24,9 @@ public class DownloadTaskManager {
     @Autowired
     private VideoDownloadService videoDownloadService;
     
+    @Autowired
+    private FrontendPartDownloadService frontendPartDownloadService;
+    
     /**
      * 下载线程池
      */
@@ -30,12 +35,12 @@ public class DownloadTaskManager {
     /**
      * 下载队列
      */
-    private BlockingQueue<VideoDownload> downloadQueue;
+    private BlockingQueue<Object> downloadQueue;
     
     /**
      * 正在下载的任务映射
      */
-    private ConcurrentHashMap<Long, VideoDownload> downloadingTasks;
+    private ConcurrentHashMap<Long, Object> downloadingTasks;
     
     /**
      * 任务计数器
@@ -86,41 +91,44 @@ public class DownloadTaskManager {
             while (!Thread.currentThread().isInterrupted()) {
                 try {
                     // 从队列中取出任务
-                    VideoDownload downloadTask = downloadQueue.take();
+                    Object downloadTask = downloadQueue.take();
                     
                     // 将任务加入正在下载映射
-                    downloadingTasks.put(downloadTask.getId(), downloadTask);
-                    
-                    // 更新任务状态为下载中
-                    try {
-                        VideoDownload taskToUpdate = videoDownloadService.getById(downloadTask.getId());
-                        if (taskToUpdate != null) {
-                            taskToUpdate.setStatus(1); // 下载中
-                            taskToUpdate.setUpdateTime(java.time.LocalDateTime.now());
-                            videoDownloadService.updateById(taskToUpdate);
-                            log.info("成功更新任务状态为下载中，任务ID: {}", downloadTask.getId());
-                        } else {
-                            log.warn("未找到任务记录，任务ID: {}", downloadTask.getId());
-                        }
-                    } catch (Exception e) {
-                        log.error("更新任务状态为下载中时发生错误，任务ID: {}", downloadTask.getId(), e);
+                    Long taskId = getTaskId(downloadTask);
+                    if (taskId != null) {
+                        downloadingTasks.put(taskId, downloadTask);
                     }
                     
                     // 提交到线程池执行
                     downloadThreadPool.submit(new DownloadTaskRunnable(downloadTask));
                 } catch (InterruptedException e) {
                     log.warn("队列处理器被中断");
-                    Thread.currentThread().interrupt();
-                    break;
+                    // 不设置中断状态，让循环继续运行
+                    // Thread.currentThread().interrupt();
+                    // break;
                 } catch (Exception e) {
                     log.error("处理下载队列任务时发生错误", e);
                 }
             }
+            log.info("队列处理器线程结束");
         });
         
         queueProcessor.setName("DownloadQueueProcessor");
-        queueProcessor.setDaemon(true);
+        // 移除守护线程设置，确保线程能够持续运行
+        // queueProcessor.setDaemon(true);
         queueProcessor.start();
+    }
+    
+    /**
+     * 获取任务ID
+     */
+    private Long getTaskId(Object task) {
+        if (task instanceof VideoDownload) {
+            return ((VideoDownload) task).getId();
+        } else if (task instanceof DownloadTask) {
+            return ((DownloadTask) task).getId();
+        }
+        return null;
     }
     
     /**
@@ -128,7 +136,7 @@ public class DownloadTaskManager {
      * @param downloadTask 下载任务
      * @return 是否添加成功
      */
-    public boolean addDownloadTask(VideoDownload downloadTask) {
+    public boolean addDownloadTask(Object downloadTask) {
         try {
             return downloadQueue.offer(downloadTask, 1, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
@@ -158,7 +166,7 @@ public class DownloadTaskManager {
      * 获取正在下载的任务列表
      * @return 正在下载的任务列表
      */
-    public java.util.List<VideoDownload> getDownloadingTasks() {
+    public java.util.List<Object> getDownloadingTasks() {
         return new java.util.ArrayList<>(downloadingTasks.values());
     }
     
@@ -166,33 +174,88 @@ public class DownloadTaskManager {
      * 下载任务执行类
      */
     private class DownloadTaskRunnable implements Runnable {
-        private final VideoDownload downloadTask;
+        private final Object downloadTask;
         
-        public DownloadTaskRunnable(VideoDownload downloadTask) {
+        public DownloadTaskRunnable(Object downloadTask) {
             this.downloadTask = downloadTask;
         }
         
         @Override
         public void run() {
             try {
-                // 模拟下载过程
-                log.info("开始下载任务: {}", downloadTask.getId());
+                log.info("开始处理下载任务");
                 
-                // 模拟下载进度更新
-                for (int i = 0; i <= 100; i += 10) {
-                    Thread.sleep(1000); // 模拟下载时间
-                    videoDownloadService.updateProgress(downloadTask.getId(), i);
+                // 根据任务类型执行相应的下载逻辑
+                if (downloadTask instanceof DownloadTask) {
+                    // 处理分P下载任务
+                    DownloadTask task = (DownloadTask) downloadTask;
+                    log.info("开始执行分P下载任务: {}", task.getId());
+                    
+                    // 直接执行下载逻辑
+                    if (frontendPartDownloadService != null) {
+                        frontendPartDownloadService.executeDownload(task);
+                    } else {
+                        log.error("FrontendPartDownloadService未正确注入");
+                    }
+                } else if (downloadTask instanceof VideoDownload) {
+                    // 处理普通视频下载任务
+                    VideoDownload task = (VideoDownload) downloadTask;
+                    log.info("开始执行普通下载任务: {}", task.getId());
+                    
+                    // 更新任务状态为下载中
+                    VideoDownload currentTask = videoDownloadService.getById(task.getId());
+                    if (currentTask != null) {
+                        currentTask.setStatus(1); // 下载中
+                        currentTask.setUpdateTime(java.time.LocalDateTime.now());
+                        videoDownloadService.updateById(currentTask);
+                        log.info("成功更新任务状态为下载中，任务ID: {}", task.getId());
+                    }
+                    
+                    // 这里可以添加具体的下载逻辑
+                    // 模拟下载完成
+                    Thread.sleep(1000); // 模拟处理时间
+                    
+                    // 更新任务为完成状态
+                    VideoDownload completedTask = videoDownloadService.getById(task.getId());
+                    if (completedTask != null) {
+                        completedTask.setStatus(2); // 完成
+                        completedTask.setProgress(100);
+                        completedTask.setUpdateTime(java.time.LocalDateTime.now());
+                        videoDownloadService.updateById(completedTask);
+                        log.info("下载任务完成: {}", task.getId());
+                    }
+                } else {
+                    log.warn("未知的任务类型: {}", downloadTask.getClass().getName());
                 }
-                
-                // 模拟下载完成
-                videoDownloadService.completeDownload(downloadTask.getId(), "/path/to/downloaded/file.mp4");
-                log.info("下载任务完成: {}", downloadTask.getId());
             } catch (Exception e) {
-                log.error("下载任务执行失败: {}", downloadTask.getId(), e);
-                videoDownloadService.failDownload(downloadTask.getId(), e.getMessage());
+                log.error("下载任务执行失败", e);
+                // 处理任务失败的情况
+                handleTaskFailure(downloadTask, e);
             } finally {
                 // 从正在下载映射中移除
-                downloadingTasks.remove(downloadTask.getId());
+                Long taskId = getTaskId(downloadTask);
+                if (taskId != null) {
+                    downloadingTasks.remove(taskId);
+                }
+            }
+        }
+        
+        /**
+         * 处理任务失败的情况
+         */
+        private void handleTaskFailure(Object task, Exception e) {
+            try {
+                Long taskId = getTaskId(task);
+                if (taskId != null) {
+                    VideoDownload failedTask = videoDownloadService.getById(taskId);
+                    if (failedTask != null) {
+                        failedTask.setStatus(3); // 失败
+                        failedTask.setUpdateTime(java.time.LocalDateTime.now());
+                        videoDownloadService.updateById(failedTask);
+                    }
+                }
+            } catch (Exception updateException) {
+                log.error("更新任务失败状态时发生错误", updateException);
             }
         }
     }
