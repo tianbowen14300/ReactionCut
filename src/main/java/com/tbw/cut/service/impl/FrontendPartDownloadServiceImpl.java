@@ -198,9 +198,13 @@ public class FrontendPartDownloadServiceImpl implements FrontendPartDownloadServ
                         if (actualVideoUrl != null) {
                             log.info("获取到视频流URL: {}", actualVideoUrl);
                             
+                            // 使用ffprobe预获取视频总时长
+                            long totalDuration = ffmpegUtil.getDurationByFFprobe(actualVideoUrl);
+                            log.info("获取到视频总时长: {} 微秒", totalDuration);
+                            
                             // Download video using FFmpeg to main folder with progress tracking
                             // 进度更新完全依赖于 FFmpegUtil.ProgressCallback
-                            String localPath = ffmpegUtil.downloadVideoToDirectoryWithProgress(actualVideoUrl, outputFileName, mainFolderPath.toString(), 
+                            String localPath = ffmpegUtil.downloadVideoToDirectoryWithProgress(actualVideoUrl, outputFileName, mainFolderPath.toString(), totalDuration,
                                 new com.tbw.cut.utils.FFmpegUtil.ProgressCallback() {
                                     @Override
                                     public void onProgress(int progress) {

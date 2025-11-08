@@ -401,6 +401,7 @@ export default {
         // 修改WebSocket连接URL，使用正确的端口
         // 前端运行在8100端口，但WebSocket应该连接到后端的8080端口
         const wsUrl = `ws://localhost:8080/ws/download-progress`;
+        console.log('尝试建立WebSocket连接到:', wsUrl);
         this.websocket = new WebSocket(wsUrl);
         
         this.websocket.onopen = () => {
@@ -410,6 +411,7 @@ export default {
         this.websocket.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
+            console.log('收到WebSocket消息:', data);
             if (data.type === 'progress') {
               this.updateDownloadProgress(data.taskId, data.progress);
             } else if (data.type === 'status') {

@@ -17,6 +17,9 @@ public class FFmpegUtil {
     @Value("${app.ffmpeg-path:/usr/local/bin/ffmpeg}")
     private String ffmpegPath;
     
+    @Value("${app.ffprobe-path:/usr/local/bin/ffprobe}")
+    private String ffprobePath;
+    
     @Value("${app.video-storage-dir:./videos}")
     private String videoStorageDir;
     
@@ -127,84 +130,111 @@ public class FFmpegUtil {
     }
     
     /**
+     * 使用ffprobe获取视频时长（微秒）
+     * @param videoUrl 视频URL
+     * @return 视频时长（微秒），如果获取失败返回0
+     */
+    public long getDurationByFFprobe(String videoUrl) {
+        try {
+            List<String> command = new ArrayList<>();
+            command.add(ffprobePath); // 使用ffprobePath而不是ffmpegPath
+            command.add("-v");
+            command.add("error");
+            command.add("-show_entries");
+            command.add("format=duration");
+            command.add("-of");
+            command.add("default=noprint_wrappers=1:nokey=1");
+            command.add("-i");
+            command.add(videoUrl);
+            
+            log.info("Executing ffprobe command: {}", String.join(" ", command));
+            
+            Process process = executeCommand(command, 30, TimeUnit.SECONDS);
+            
+            if (process.exitValue() == 0) {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                String result = reader.readLine();
+                if (result != null && !result.isEmpty()) {
+                    // ffprobe返回的是秒数，需要转换为微秒
+                    double durationInSeconds = Double.parseDouble(result.trim());
+                    long durationInMicroseconds = (long) (durationInSeconds * 1_000_000);
+                    log.info("Successfully got duration: {} seconds ({} microseconds)", durationInSeconds, durationInMicroseconds);
+                    return durationInMicroseconds;
+                }
+            } else {
+                log.error("ffprobe command failed with exit code: {}", process.exitValue());
+                // 读取错误输出
+                BufferedReader errorReader = new BufferedReader(new InputStreamReader(process.getErrorStream()));
+                String errorLine;
+                while ((errorLine = errorReader.readLine()) != null) {
+                    log.error("ffprobe error: {}", errorLine);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to get duration by ffprobe for URL: {}", videoUrl, e);
+        }
+        return 0;
+    }
+    
+    /**
      * Download Bilibili video to specific directory with progress tracking
      * @param videoUrl Video URL
      * @param outputFileName Output file name
      * @param outputDirectory Output directory
-     * @param progressCallback Progress callback function
+     * @param totalDuration 视频总时长（微秒）
+     * @param progressCallback Progress callback
      * @return Output file path if successful, null otherwise
      */
-    public String downloadVideoToDirectoryWithProgress(String videoUrl, String outputFileName, String outputDirectory, ProgressCallback progressCallback) {
+    public String downloadVideoToDirectoryWithProgress(String videoUrl, String outputFileName, String outputDirectory, 
+                                                     long totalDuration, ProgressCallback progressCallback) {
         try {
-            // 确保输出文件名是唯一的，避免文件已存在错误
-            String uniqueOutputFileName = generateUniqueFileName(outputFileName);
-            String outputPath = outputDirectory + "/" + uniqueOutputFileName;
+            // 构建输出文件路径
+            String outputPath = outputDirectory + File.separator + outputFileName;
             
-            // 确保输出目录存在
-            File outputDir = new File(outputDirectory);
-            if (!outputDir.exists()) {
-                outputDir.mkdirs();
-            }
-            
-            // 检查文件是否已存在，如果存在则删除
-            File outputFile = new File(outputPath);
-            if (outputFile.exists()) {
-                log.info("输出文件已存在，删除旧文件: {}", outputPath);
-                outputFile.delete();
-            }
-            
+            // 构建FFmpeg命令
             List<String> command = new ArrayList<>();
             command.add(ffmpegPath);
-            command.add("-user_agent");
-            command.add("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
-            command.add("-referer");
-            command.add("https://www.bilibili.com");
             command.add("-i");
             command.add(videoUrl);
             command.add("-c");
-            command.add("copy");
+            command.add("copy"); // 使用流复制以提高下载速度
             command.add("-y"); // 覆盖输出文件
             command.add("-progress");
-            command.add("pipe:2"); // 输出进度信息到标准错误流
+            command.add("pipe:1"); // 将进度信息输出到标准输出
             command.add(outputPath);
             
-            log.info("Downloading video with progress tracking: {}", String.join(" ", command));
+            log.info("Executing FFmpeg command: {}", String.join(" ", command));
             
-            ProcessBuilder processBuilder = new ProcessBuilder(command);
-            // 重定向错误流到输出流，这样可以同时读取进度和日志
-            processBuilder.redirectErrorStream(false); // 不合并错误流和输出流
-            Process process = processBuilder.start();
+            // 启动FFmpeg进程
+            Process process = executeCommand(command, 0, null); // 不设置超时
             
             // 启动一个线程专门读取标准错误流（进度信息）
             final int[] lastProgress = {0};
+            // 使用传入的totalDuration作为固定的总时长
+            final long fixedTotalDuration = totalDuration;
+            
             Thread progressThread = new Thread(() -> {
                 try (BufferedReader errorReader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
                     String line;
                     long lastUpdateTime = System.currentTimeMillis();
-                    long totalDuration = 0; // 视频总时长（微秒）
                     long currentDuration = 0; // 当前已下载时长（微秒）
                     final int MIN_UPDATE_INTERVAL_MS = 500; // 最小更新间隔 500ms
                     
                     while ((line = errorReader.readLine()) != null) {
-                        if (line.startsWith("total_duration=")) {
-                            // 获取视频总时长
-                            try {
-                                totalDuration = Long.parseLong(line.substring(15));
-                                log.debug("Total duration: {} microseconds", totalDuration);
-                            } catch (NumberFormatException e) {
-                                log.warn("Failed to parse total duration: {}", line);
-                            }
-                        } else if (line.startsWith("out_time_us=")) {
+                        // 忽略FFmpeg输出的total_duration=行，使用传入的fixedTotalDuration
+                        if (line.startsWith("out_time_us=")) {
                             // 解析时间信息并计算进度
                             try {
                                 currentDuration = Long.parseLong(line.substring(12));
                                 log.debug("Current duration: {} microseconds", currentDuration);
                                 
                                 int currentProgress = 0;
-                                if (totalDuration > 0) {
+                                if (fixedTotalDuration > 0) {
                                     // 正常计算进度
-                                    currentProgress = (int) ((currentDuration * 100) / totalDuration);
+                                    currentProgress = (int) ((currentDuration * 100) / fixedTotalDuration);
                                     currentProgress = Math.max(0, Math.min(99, currentProgress)); // 限制在 0-99
+                                    
+                                    log.debug("Calculated progress: {}%", currentProgress);
                                     
                                     // 只有当能计算出有效进度时才进行推送
                                     if (currentProgress >= 0 && currentProgress <= 99) {
@@ -220,10 +250,16 @@ public class FFmpegUtil {
                                                 }
                                                 lastUpdateTime = currentTime;
                                             }
+                                        } else {
+                                            log.debug("Progress not increasing, current: {}, last: {}", currentProgress, lastProgress[0]);
                                         }
+                                    } else {
+                                        log.debug("Progress out of valid range: {}", currentProgress);
                                     }
+                                } else {
+                                    log.debug("fixedTotalDuration is 0, skipping progress calculation");
+                                    // 当fixedTotalDuration为0时，不进行任何进度推送
                                 }
-                                // 如果totalDuration为0，不进行任何进度推送
                             } catch (NumberFormatException e) {
                                 log.warn("Failed to parse out_time_us: {}", line);
                             }
@@ -296,7 +332,19 @@ public class FFmpegUtil {
      * @return Output file path if successful, null otherwise
      */
     public String downloadVideoToDirectory(String videoUrl, String outputFileName, String outputDirectory) {
-        return downloadVideoToDirectoryWithProgress(videoUrl, outputFileName, outputDirectory, null);
+        return downloadVideoToDirectoryWithProgress(videoUrl, outputFileName, outputDirectory, 0, null);
+    }
+    
+    /**
+     * Download Bilibili video to specific directory
+     * @param videoUrl Video URL
+     * @param outputFileName Output file name
+     * @param outputDirectory Output directory
+     * @param totalDuration 视频总时长（微秒）
+     * @return Output file path if successful, null otherwise
+     */
+    public String downloadVideoToDirectory(String videoUrl, String outputFileName, String outputDirectory, long totalDuration) {
+        return downloadVideoToDirectoryWithProgress(videoUrl, outputFileName, outputDirectory, totalDuration, null);
     }
     
     /**
