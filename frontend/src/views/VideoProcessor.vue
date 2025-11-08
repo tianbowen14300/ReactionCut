@@ -2,6 +2,12 @@
   <div class="video-processor">
     <h2>视频处理与投稿</h2>
     
+    <!-- 导航链接 -->
+    <div style="margin-bottom: 20px;">
+      <el-button type="primary" @click="$router.push('/process')">视频处理</el-button>
+      <el-button type="success" @click="$router.push('/submission')">视频投稿</el-button>
+    </div>
+    
     <el-card class="input-card">
       <div slot="header">
         <span>处理任务配置</span>

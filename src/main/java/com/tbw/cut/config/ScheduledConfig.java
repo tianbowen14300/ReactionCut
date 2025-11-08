@@ -16,7 +16,7 @@ public class ScheduledConfig {
     /**
      * 每5分钟检查一次主播直播状态
      */
-    @Scheduled(fixedRate = 300000) // 5分钟 = 300000毫秒
+//    @Scheduled(fixedRate = 300000) // 5分钟 = 300000毫秒
     public void checkAnchorLiveStatus() {
         try {
             log.info("开始检查主播直播状态");

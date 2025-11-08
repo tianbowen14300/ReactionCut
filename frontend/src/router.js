@@ -3,6 +3,7 @@ import Router from 'vue-router'
 import AnchorSubscription from './views/AnchorSubscription.vue'
 import VideoDownload from './views/VideoDownload.vue'
 import VideoProcessor from './views/VideoProcessor.vue'
+import VideoSubmission from './views/VideoSubmission.vue'
 import QRCodeLoginView from './views/QRCodeLoginView.vue'
 import TestQRCode from './views/TestQRCode.vue'
 import ImprovedQRCodeLoginView from './views/ImprovedQRCodeLoginView.vue'
@@ -38,6 +39,12 @@ export default new Router({
       path: '/process',
       name: 'process',
       component: VideoProcessor,
+      meta: { title: '视频处理' }
+    },
+    {
+      path: '/submission',
+      name: 'submission',
+      component: VideoSubmission,
       meta: { title: '视频投稿' }
     },
     {

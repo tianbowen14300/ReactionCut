@@ -1,233 +1,631 @@
 package com.tbw.cut.service.impl;
 
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.tbw.cut.entity.VideoProcessTask;
+import com.tbw.cut.entity.SubmissionTask;
+import com.tbw.cut.entity.TaskSourceVideo;
+import com.tbw.cut.entity.TaskOutputSegment;
 import com.tbw.cut.entity.VideoClip;
-import com.tbw.cut.mapper.VideoProcessTaskMapper;
+import com.tbw.cut.entity.MergedVideo;
+import com.tbw.cut.mapper.SubmissionTaskMapper;
+import com.tbw.cut.mapper.TaskSourceVideoMapper;
+import com.tbw.cut.mapper.TaskOutputSegmentMapper;
 import com.tbw.cut.mapper.VideoClipMapper;
+import com.tbw.cut.mapper.MergedVideoMapper;
 import com.tbw.cut.service.VideoProcessService;
-import com.tbw.cut.dto.VideoProcessTaskDTO;
-import com.tbw.cut.dto.VideoClipDTO;
-import com.tbw.cut.utils.FFmpegUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.stream.Collectors;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
-public class VideoProcessServiceImpl extends ServiceImpl<VideoProcessTaskMapper, VideoProcessTask> implements VideoProcessService {
+public class VideoProcessServiceImpl implements VideoProcessService {
     
+    @Autowired
+    private SubmissionTaskMapper submissionTaskMapper;
+    
+    @Autowired
+    private TaskSourceVideoMapper taskSourceVideoMapper;
+    
+    @Autowired
+    private TaskOutputSegmentMapper taskOutputSegmentMapper;
+    
+    @Value("${ffmpeg.path:/opt/homebrew/bin/ffmpeg}")
+    private String ffmpegPath;
     @Autowired
     private VideoClipMapper videoClipMapper;
-    
+
     @Autowired
-    private FFmpegUtil ffmpegUtil;
-    
+    private MergedVideoMapper mergedVideoMapper;
+
     @Override
-    public Long createProcessTask(VideoProcessTaskDTO dto) {
+    public List<String> clipVideos(String taskId) {
         try {
-            // Create processing task
-            VideoProcessTask task = new VideoProcessTask();
-            task.setTaskName(dto.getTaskName());
-            task.setStatus(0); // Pending
-            task.setProgress(0);
-            task.setCreateTime(LocalDateTime.now());
-            task.setUpdateTime(LocalDateTime.now());
-            
-            this.save(task);
-            
-            // Save video clip information
-            List<VideoClipDTO> clipDTOs = dto.getClips();
-            for (int i = 0; i < clipDTOs.size(); i++) {
-                VideoClipDTO clipDTO = clipDTOs.get(i);
-                VideoClip clip = new VideoClip();
-                clip.setTaskId(task.getId());
-                clip.setFileName(clipDTO.getFileName());
-                clip.setStartTime(clipDTO.getStartTime());
-                clip.setEndTime(clipDTO.getEndTime());
-                clip.setSequence(clipDTO.getSequence());
-                clip.setStatus(0); // Pending
-                clip.setCreateTime(LocalDateTime.now());
-                clip.setUpdateTime(LocalDateTime.now());
-                videoClipMapper.insert(clip);
+            // 获取任务源视频
+            List<TaskSourceVideo> sourceVideos = getSourceVideos(taskId);
+            if (sourceVideos.isEmpty()) {
+                log.warn("任务没有源视频，任务ID: {}", taskId);
+                return Collections.emptyList();
             }
             
-            // Execute processing task asynchronously
-            Long taskId = task.getId();
-            asyncExecuteProcessTask(taskId);
+            // 创建剪辑目录
+            String workDir = createWorkDirectory(taskId);
+            String clipsDir = workDir + File.separator + "clips";
+            new File(clipsDir).mkdirs();
             
-            return taskId;
+            List<String> clipPaths = new ArrayList<>();
+            
+            // 剪辑每个源视频
+            for (int i = 0; i < sourceVideos.size(); i++) {
+                TaskSourceVideo sourceVideo = sourceVideos.get(i);
+                String clipPath = clipVideo(sourceVideo, clipsDir, i + 1);
+                if (clipPath != null && !clipPath.isEmpty()) {
+                    clipPaths.add(clipPath);
+                }
+                VideoClip videoClip = new VideoClip();
+                videoClip.setClipPath(clipPath);
+                videoClip.setTaskId(taskId); // 转换为Long类型
+                videoClip.setSequence(sourceVideo.getSortOrder());
+                videoClip.setStartTime(sourceVideo.getStartTime());
+                videoClip.setEndTime(sourceVideo.getEndTime());
+                videoClip.setCreateTime(LocalDateTime.now());
+                videoClip.setUpdateTime(LocalDateTime.now());
+                videoClip.setFileName(new File(clipPath).getName());
+                videoClip.setStatus(1);
+                videoClipMapper.insert(videoClip);
+            }
+            log.info("视频剪辑完成，任务ID: {}, 剪辑文件数量: {}", taskId, clipPaths.size());
+            return clipPaths;
         } catch (Exception e) {
-            log.error("Failed to create video processing task", e);
-            return null;
+            log.error("视频剪辑时发生异常，任务ID: {}", taskId, e);
+            return Collections.emptyList();
         }
     }
     
     @Override
-    public void executeProcessTask(Long taskId) {
+    public String mergeVideos(String taskId) {
         try {
-            VideoProcessTask task = this.getById(taskId);
-            if (task == null) {
-                log.error("Task not found, ID: {}", taskId);
-                return;
+            // 从数据库获取剪辑文件路径并按sequence排序
+            List<String> clipPaths = getClipPathsFromDatabase(taskId);
+            if (clipPaths == null || clipPaths.isEmpty()) {
+                log.warn("没有找到剪辑文件，任务ID: {}", taskId);
+                return null;
             }
             
-            // Update task status to processing
-            task.setStatus(1);
-            task.setUpdateTime(LocalDateTime.now());
-            this.updateById(task);
+            String mergedPath = performMergeVideos(taskId, clipPaths);
             
-            // Get all clips
-            List<VideoClip> clips = videoClipMapper.selectList(
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<VideoClip>()
-                    .eq(VideoClip::getTaskId, taskId)
-                    .orderByAsc(VideoClip::getSequence)
-            );
+            // 保存合并视频信息
+            if (mergedPath != null && !mergedPath.isEmpty()) {
+                saveMergedVideo(taskId, mergedPath);
+            }
             
-            // Process each clip
-            List<String> clipPaths = new ArrayList<>();
-            for (int i = 0; i < clips.size(); i++) {
-                VideoClip clip = clips.get(i);
-                // Update progress
-                int progress = (i * 100) / (clips.size() * 2);
-                updateProgress(taskId, progress);
-                
-                // Extract clip using FFmpeg
-                String clipPath = extractClip(clip);
-                if (clipPath != null) {
-                    clipPaths.add(clipPath);
-                } else {
-                    failProcessTask(taskId, "Failed to extract clip: " + clip.getFileName());
-                    return;
+            return mergedPath;
+        } catch (Exception e) {
+            log.error("视频合并时发生异常，任务ID: {}", taskId, e);
+            return null;
+        }
+    }
+    
+    /**
+     * 执行视频合并操作
+     */
+    private String performMergeVideos(String taskId, List<String> clipPaths) {
+        try {
+            if (clipPaths == null || clipPaths.isEmpty()) {
+                log.warn("没有视频需要合并，任务ID: {}", taskId);
+                return null;
+            }
+            
+            // 创建合并目录
+            String workDir = getWorkDirectory(taskId);
+            String outputPath = workDir + File.separator + "merged_video.mp4";
+            
+            // 如果只有一个剪辑文件，直接复制
+            if (clipPaths.size() == 1) {
+                Files.copy(Paths.get(clipPaths.get(0)), Paths.get(outputPath));
+                log.info("只有一个剪辑文件，直接复制完成，任务ID: {}", taskId);
+                return outputPath;
+            }
+            
+            // 创建临时的concat文件
+            String concatFilePath = workDir + File.separator + "file_list.txt";
+            try (FileWriter writer = new FileWriter(concatFilePath)) {
+                for (String clipPath : clipPaths) {
+                    writer.write("file '" + clipPath + "'\n");
                 }
             }
             
-            // Merge all clips
-            updateProgress(taskId, 50);
-            String mergedPath = mergeClips(taskId, clipPaths);
-            if (mergedPath == null) {
-                failProcessTask(taskId, "Failed to merge clips");
-                return;
+            // 构建FFmpeg命令：合并视频
+            List<String> command = new ArrayList<>();
+            command.add(ffmpegPath);
+            command.add("-f");
+            command.add("concat");
+            command.add("-safe");
+            command.add("0");
+            command.add("-i");
+            command.add(concatFilePath);
+            command.add("-c");
+            command.add("copy");
+            command.add("-y");
+            command.add(outputPath);
+            
+            log.info("执行FFmpeg合并命令: {}", String.join(" ", command));
+            
+            ProcessBuilder builder = new ProcessBuilder(command);
+            Process process = builder.start();
+            
+            // 读取输出
+            readProcessOutput(process);
+            
+            boolean finished = process.waitFor(30, TimeUnit.MINUTES);
+            if (!finished) {
+                process.destroyForcibly();
+                log.error("FFmpeg合并超时，任务ID: {}", taskId);
+                return null;
             }
             
-            // Update progress to 90%
-            updateProgress(taskId, 90);
+            int exitCode = process.exitValue();
+            if (exitCode != 0) {
+                log.error("FFmpeg合并失败，退出码: {}, 任务ID: {}", exitCode, taskId);
+                return null;
+            }
             
-            // Upload to Bilibili
-            uploadToBilibili(taskId, mergedPath);
+            // 删除临时的concat文件
+            new File(concatFilePath).delete();
             
-            // Complete task
-            completeProcessTask(taskId, mergedPath);
+            log.info("视频合并完成，任务ID: {}, 输出路径: {}", taskId, outputPath);
+            return outputPath;
         } catch (Exception e) {
-            failProcessTask(taskId, e.getMessage());
+            log.error("视频合并时发生异常，任务ID: {}", taskId, e);
+            return null;
         }
     }
     
     @Override
-    public void updateProgress(Long taskId, Integer progress) {
-        VideoProcessTask task = this.getById(taskId);
-        if (task != null) {
-            task.setProgress(progress);
-            task.setUpdateTime(LocalDateTime.now());
-            this.updateById(task);
-        }
-    }
-    
-    @Override
-    public void completeProcessTask(Long taskId, String outputPath) {
-        VideoProcessTask task = this.getById(taskId);
-        if (task != null) {
-            task.setOutputPath(outputPath);
-            task.setStatus(2); // Completed
-            task.setProgress(100);
-            task.setUpdateTime(LocalDateTime.now());
-            this.updateById(task);
-        }
-    }
-    
-    @Override
-    public void failProcessTask(Long taskId, String errorMessage) {
-        VideoProcessTask task = this.getById(taskId);
-        if (task != null) {
-            task.setStatus(3); // Failed
-            task.setUpdateTime(LocalDateTime.now());
-            this.updateById(task);
-            log.error("Video processing failed, Task ID: {}, Error: {}", taskId, errorMessage);
-        }
-    }
-    
-    /**
-     * Execute processing task asynchronously
-     * @param taskId Task ID
-     */
-    private void asyncExecuteProcessTask(Long taskId) {
-        // Use new thread to simulate async processing
-        new Thread(() -> {
-            executeProcessTask(taskId);
-        }).start();
-    }
-    
-    /**
-     * Extract video clip using FFmpeg
-     * @param clip Clip information
-     * @return Clip path if successful, null otherwise
-     */
-    private String extractClip(VideoClip clip) {
+    public List<String> segmentVideo(String taskId) {
         try {
-            String outputFileName = "clip_" + clip.getId() + "_" + clip.getSequence() + ".mp4";
-            String clipPath = ffmpegUtil.extractClip(
-                clip.getFileName(), 
-                clip.getStartTime(), 
-                clip.getEndTime(), 
-                outputFileName
-            );
+            // 从数据库获取合并后的视频路径
+            String mergedVideoPath = getMergedVideoPathFromDatabase(taskId);
+            if (mergedVideoPath == null || mergedVideoPath.isEmpty()) {
+                log.warn("没有找到合并后的视频，任务ID: {}", taskId);
+                return Collections.emptyList();
+            }
             
-            if (clipPath != null) {
-                // Update clip status
-                clip.setStatus(2); // Completed
-                clip.setClipPath(clipPath);
-                clip.setUpdateTime(LocalDateTime.now());
-                videoClipMapper.updateById(clip);
-                return clipPath;
+            return performSegmentVideo(taskId, mergedVideoPath);
+        } catch (Exception e) {
+            log.error("视频分段时发生异常，任务ID: {}", taskId, e);
+            return Collections.emptyList();
+        }
+    }
+    
+    /**
+     * 执行视频分段操作
+     */
+    private List<String> performSegmentVideo(String taskId, String mergedVideoPath) {
+        try {
+            if (mergedVideoPath == null || !new File(mergedVideoPath).exists()) {
+                log.warn("合并视频文件不存在，任务ID: {}", taskId);
+                return Collections.emptyList();
+            }
+            
+            // 创建输出目录
+            String workDir = getWorkDirectory(taskId);
+            String outputDir = workDir + File.separator + "output";
+            new File(outputDir).mkdirs();
+            
+            // 获取视频时长
+            double videoDuration = getVideoDuration(mergedVideoPath);
+            if (videoDuration <= 0) {
+                log.error("无法获取视频时长，任务ID: {}", taskId);
+                return Collections.emptyList();
+            }
+            
+            log.info("视频时长: {} 秒，任务ID: {}", videoDuration, taskId);
+            
+            // 计算分段数 (每段133秒，即2分13秒)
+            int segmentDuration = 133;
+            int segmentCount = (int) Math.ceil(videoDuration / segmentDuration);
+            
+            log.info("分段数: {}, 每段时长: {}秒，任务ID: {}", segmentCount, segmentDuration, taskId);
+            
+            List<String> segmentPaths = new ArrayList<>();
+            
+            // 循环切割每一段
+            for (int i = 0; i < segmentCount; i++) {
+                int currentStart = i * segmentDuration;
+                
+                // 检查是否超过视频总时长
+                if (currentStart >= videoDuration) {
+                    log.info("已达到视频末尾，停止切割，任务ID: {}", taskId);
+                    break;
+                }
+                
+                // 格式化开始时间 (HH:MM:SS)
+                String startTime = formatTime(currentStart);
+                
+                // 格式化文件编号 (001, 002, ...)
+                String fileNum = String.format("%03d", i + 1);
+                String segmentPath = outputDir + File.separator + "part_" + fileNum + ".mp4";
+                
+                log.info("[{}/{}] 时间: {} → {}, 任务ID: {}", i + 1, segmentCount, startTime, segmentPath, taskId);
+                
+                // 构建FFmpeg命令：切割视频
+                List<String> command = new ArrayList<>();
+                command.add(ffmpegPath);
+                command.add("-ss");
+                command.add(startTime);
+                command.add("-i");
+                command.add(mergedVideoPath);
+                command.add("-t");
+                command.add("00:02:13"); // 2分13秒
+                command.add("-c");
+                command.add("copy");
+                command.add("-y");
+                command.add(segmentPath);
+                
+                log.debug("执行FFmpeg切割命令: {}", String.join(" ", command));
+                
+                ProcessBuilder builder = new ProcessBuilder(command);
+                Process process = builder.start();
+                
+                // 读取输出
+                readProcessOutput(process);
+                
+                boolean finished = process.waitFor(10, TimeUnit.MINUTES);
+                if (!finished) {
+                    process.destroyForcibly();
+                    log.error("FFmpeg切割超时，任务ID: {}, 分段: {}", taskId, i + 1);
+                    continue;
+                }
+                
+                int exitCode = process.exitValue();
+                if (exitCode == 0) {
+                    segmentPaths.add(segmentPath);
+                    log.info("✓ 成功创建分段: {}, 任务ID: {}", segmentPath, taskId);
+                } else {
+                    log.error("✗ 创建分段失败，任务ID: {}, 分段: {}, 退出码: {}", taskId, i + 1, exitCode);
+                }
+            }
+            
+            log.info("视频分段完成，任务ID: {}, 分段文件数量: {}", taskId, segmentPaths.size());
+            return segmentPaths;
+        } catch (Exception e) {
+            log.error("视频分段时发生异常，任务ID: {}", taskId, e);
+            return Collections.emptyList();
+        }
+    }
+    
+    @Override
+    public SubmissionTask getTaskDetail(String taskId) {
+        return submissionTaskMapper.selectById(taskId);
+    }
+    
+    @Override
+    public List<TaskSourceVideo> getSourceVideos(String taskId) {
+        return taskSourceVideoMapper.findByTaskIdOrderBySortOrder(taskId);
+    }
+    
+    @Override
+    public void saveOutputSegments(String taskId, List<String> segmentPaths) {
+        try {
+            List<TaskOutputSegment> segments = new ArrayList<>();
+            
+            for (int i = 0; i < segmentPaths.size(); i++) {
+                TaskOutputSegment segment = new TaskOutputSegment();
+                segment.setSegmentId(UUID.randomUUID().toString());
+                segment.setTaskId(taskId);
+                segment.setPartName("P" + (i + 1));
+                segment.setSegmentFilePath(segmentPaths.get(i));
+                segment.setPartOrder(i + 1);
+                segment.setUploadStatus(TaskOutputSegment.UploadStatus.PENDING);
+                segment.setCid(null);
+                segments.add(segment);
+            }
+            
+            for (TaskOutputSegment segment : segments) {
+                taskOutputSegmentMapper.insert(segment);
+            }
+            
+            log.info("保存输出分段成功，任务ID: {}, 分段数量: {}", taskId, segments.size());
+        } catch (Exception e) {
+            log.error("保存输出分段时发生异常，任务ID: {}", taskId, e);
+        }
+    }
+    
+    @Override
+    public void saveMergedVideo(String taskId, String mergedVideoPath) {
+        try {
+            MergedVideo mergedVideo = new MergedVideo();
+            mergedVideo.setTaskId(taskId);
+            mergedVideo.setFileName(new File(mergedVideoPath).getName());
+            mergedVideo.setVideoPath(mergedVideoPath);
+            mergedVideo.setStatus(2); // 处理完成
+            mergedVideo.setCreateTime(LocalDateTime.now());
+            mergedVideo.setUpdateTime(LocalDateTime.now());
+            
+            // 获取视频时长（简化处理，实际应该通过FFmpeg获取）
+            mergedVideo.setDuration(0);
+            
+            mergedVideoMapper.insert(mergedVideo);
+            log.info("保存合并视频信息成功，任务ID: {}, 视频路径: {}", taskId, mergedVideoPath);
+        } catch (Exception e) {
+            log.error("保存合并视频信息时发生异常，任务ID: {}", taskId, e);
+        }
+    }
+    
+    @Override
+    public List<MergedVideo> getMergedVideos(String taskId) {
+        try {
+            return mergedVideoMapper.findByTaskIdOrderByCreateTime(taskId);
+        } catch (Exception e) {
+            log.error("获取合并视频信息时发生异常，任务ID: {}", taskId, e);
+            return Collections.emptyList();
+        }
+    }
+    
+    /**
+     * 剪辑单个视频
+     */
+    private String clipVideo(TaskSourceVideo sourceVideo, String clipsDir, int index) {
+        try {
+            String inputPath = sourceVideo.getSourceFilePath();
+            String startTime = sourceVideo.getStartTime();
+            String endTime = sourceVideo.getEndTime();
+            
+            // 构建输出路径
+            String fileName = new File(inputPath).getName();
+            String outputFileName = "clip_" + index + "_" + fileName;
+            String outputPath = clipsDir + File.separator + outputFileName;
+            
+            // 构建FFmpeg命令：剪辑视频
+            List<String> command = new ArrayList<>();
+            command.add(ffmpegPath);
+            command.add("-i");
+            command.add(inputPath);
+            
+            if (startTime != null && !startTime.isEmpty() && !startTime.equals("00:00:00")) {
+                command.add("-ss");
+                command.add(startTime);
+            }
+            
+            if (endTime != null && !endTime.isEmpty() && !endTime.equals("00:00:00")) {
+                command.add("-to");
+                command.add(endTime);
+            }
+            
+            command.add("-c");
+            command.add("copy");
+            command.add("-y");
+            command.add(outputPath);
+            
+            log.info("执行FFmpeg剪辑命令: {}", String.join(" ", command));
+            
+            ProcessBuilder builder = new ProcessBuilder(command);
+            Process process = builder.start();
+            
+            // 读取输出
+            readProcessOutput(process);
+            
+            boolean finished = process.waitFor(10, TimeUnit.MINUTES);
+            if (!finished) {
+                process.destroyForcibly();
+                log.error("FFmpeg剪辑超时，视频索引: {}", index);
+                return null;
+            }
+            
+            int exitCode = process.exitValue();
+            if (exitCode != 0) {
+                log.error("FFmpeg剪辑失败，退出码: {}, 视频索引: {}", exitCode, index);
+                return null;
+            }
+            
+            log.info("视频剪辑完成，视频索引: {}, 输出路径: {}", index, outputPath);
+            return outputPath;
+        } catch (Exception e) {
+            log.error("视频剪辑时发生异常，视频索引: {}", index, e);
+            return null;
+        }
+    }
+    
+    /**
+     * 获取视频时长
+     */
+    private double getVideoDuration(String videoPath) {
+        try {
+            List<String> command = new ArrayList<>();
+            command.add(ffmpegPath.replace("ffmpeg", "ffprobe"));
+            command.add("-v");
+            command.add("error");
+            command.add("-show_entries");
+            command.add("format=duration");
+            command.add("-of");
+            command.add("default=noprint_wrappers=1:nokey=1");
+            command.add(videoPath);
+            
+            ProcessBuilder builder = new ProcessBuilder(command);
+            Process process = builder.start();
+            
+            StringBuilder output = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    output.append(line);
+                }
+            }
+            
+            boolean finished = process.waitFor(1, TimeUnit.MINUTES);
+            if (!finished) {
+                process.destroyForcibly();
+                return -1;
+            }
+            
+            if (process.exitValue() == 0) {
+                return Double.parseDouble(output.toString().trim());
+            }
+            
+            return -1;
+        } catch (Exception e) {
+            log.error("获取视频时长时发生异常，视频路径: {}", videoPath, e);
+            return -1;
+        }
+    }
+    
+    /**
+     * 格式化时间 (秒转为HH:MM:SS)
+     */
+    private String formatTime(int seconds) {
+        int hours = seconds / 3600;
+        int minutes = (seconds % 3600) / 60;
+        int secs = seconds % 60;
+        return String.format("%02d:%02d:%02d", hours, minutes, secs);
+    }
+    
+    /**
+     * 创建任务工作目录
+     */
+    private String createWorkDirectory(String taskId) {
+        try {
+            // 获取任务详情以获取源视频路径
+            SubmissionTask task = getTaskDetail(taskId);
+            if (task == null) {
+                log.error("任务不存在，任务ID: {}", taskId);
+                return null;
+            }
+            
+            // 获取第一个源视频的目录作为工作目录基础
+            List<TaskSourceVideo> sourceVideos = getSourceVideos(taskId);
+            if (sourceVideos.isEmpty()) {
+                log.error("任务没有源视频，任务ID: {}", taskId);
+                return null;
+            }
+            
+            String firstVideoPath = sourceVideos.get(0).getSourceFilePath();
+            File firstVideoFile = new File(firstVideoPath);
+            String baseDir = firstVideoFile.getParent();
+            
+            // 在视频所在目录下创建任务目录
+            String taskDir = baseDir + File.separator + "video_task_" + taskId;
+            
+            File dir = new File(taskDir);
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
+            
+            log.info("创建任务工作目录: {}", taskDir);
+            return taskDir;
+        } catch (Exception e) {
+            log.error("创建任务工作目录时发生异常，任务ID: {}", taskId, e);
+            return null;
+        }
+    }
+    
+    /**
+     * 获取任务工作目录
+     */
+    private String getWorkDirectory(String taskId) {
+        try {
+            // 获取任务详情以获取源视频路径
+            SubmissionTask task = getTaskDetail(taskId);
+            if (task == null) {
+                log.error("任务不存在，任务ID: {}", taskId);
+                return null;
+            }
+            
+            // 获取第一个源视频的目录作为工作目录基础
+            List<TaskSourceVideo> sourceVideos = getSourceVideos(taskId);
+            if (sourceVideos.isEmpty()) {
+                log.error("任务没有源视频，任务ID: {}", taskId);
+                return null;
+            }
+            
+            String firstVideoPath = sourceVideos.get(0).getSourceFilePath();
+            File firstVideoFile = new File(firstVideoPath);
+            String baseDir = firstVideoFile.getParent();
+            
+            // 查找已存在的任务目录
+            String taskDirPattern = "video_task_" + taskId;
+            File baseDirFile = new File(baseDir);
+            
+            if (baseDirFile.exists() && baseDirFile.isDirectory()) {
+                File[] taskDirs = baseDirFile.listFiles((dir, name) -> name.contains(taskDirPattern));
+                if (taskDirs != null && taskDirs.length > 0) {
+                    return taskDirs[0].getAbsolutePath();
+                }
+            }
+            
+            // 如果没有找到已存在的任务目录，创建新的
+            return createWorkDirectory(taskId);
+        } catch (Exception e) {
+            log.error("获取任务工作目录时发生异常，任务ID: {}", taskId, e);
+            return createWorkDirectory(taskId);
+        }
+    }
+    
+    /**
+     * 从数据库获取剪辑文件路径并按sequence排序
+     */
+    private List<String> getClipPathsFromDatabase(String taskId) {
+        try {
+            List<String> clipPaths = new ArrayList<>();
+            
+            // 查询video_clip表获取剪辑文件路径并按sequence排序
+            List<VideoClip> videoClips = videoClipMapper.findByTaskIdOrderBySequence(taskId);
+            for (VideoClip clip : videoClips) {
+                if (clip.getClipPath() != null && !clip.getClipPath().isEmpty()) {
+                    clipPaths.add(clip.getClipPath());
+                }
+            }
+            
+            log.info("从数据库获取剪辑文件路径，任务ID: {}, 文件数量: {}", taskId, clipPaths.size());
+            return clipPaths;
+        } catch (Exception e) {
+            log.error("从数据库获取剪辑文件路径时发生异常，任务ID: {}", taskId, e);
+            return Collections.emptyList();
+        }
+    }
+    
+    /**
+     * 从数据库获取合并后的视频路径
+     */
+    private String getMergedVideoPathFromDatabase(String taskId) {
+        try {
+            List<MergedVideo> mergedVideos = getMergedVideos(taskId);
+            if (mergedVideos != null && !mergedVideos.isEmpty()) {
+                // 返回最新的合并视频路径
+                return mergedVideos.get(0).getVideoPath();
             }
             return null;
         } catch (Exception e) {
-            log.error("Failed to extract clip", e);
-            clip.setStatus(3); // Failed
-            clip.setUpdateTime(LocalDateTime.now());
-            videoClipMapper.updateById(clip);
+            log.error("从数据库获取合并视频路径时发生异常，任务ID: {}", taskId, e);
             return null;
         }
     }
     
     /**
-     * Merge video clips using FFmpeg
-     * @param taskId Task ID
-     * @param clipPaths Clip paths
-     * @return Merged file path if successful, null otherwise
+     * 读取并记录进程输出
      */
-    private String mergeClips(Long taskId, List<String> clipPaths) {
-        try {
-            String outputFileName = "merged_task_" + taskId + ".mp4";
-            return ffmpegUtil.mergeClips(clipPaths, outputFileName);
-        } catch (Exception e) {
-            log.error("Failed to merge clips", e);
-            return null;
+    private void readProcessOutput(Process process) throws IOException {
+        // 读取标准输出
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                log.debug("FFmpeg stdout: {}", line);
+            }
         }
-    }
-    
-    /**
-     * Upload to Bilibili
-     * @param taskId Task ID
-     * @param filePath File path to upload
-     */
-    private void uploadToBilibili(Long taskId, String filePath) {
-        // This should call Bilibili's upload API
-        log.info("Uploading video to Bilibili, Task ID: {}, File: {}", taskId, filePath);
-        // Implementation would go here
+        
+        // 读取错误输出
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                log.debug("FFmpeg stderr: {}", line);
+            }
+        }
     }
 }

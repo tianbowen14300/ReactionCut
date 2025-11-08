@@ -36,6 +36,10 @@
               <span slot="title">视频下载</span>
             </el-menu-item>
             <el-menu-item index="/process">
+              <i class="el-icon-video-camera"></i>
+              <span slot="title">视频处理</span>
+            </el-menu-item>
+            <el-menu-item index="/submission">
               <i class="el-icon-upload"></i>
               <span slot="title">视频投稿</span>
             </el-menu-item>

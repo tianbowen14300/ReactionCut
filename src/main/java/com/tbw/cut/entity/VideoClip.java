@@ -18,7 +18,7 @@ public class VideoClip {
     /**
      * 关联的任务ID
      */
-    private Long taskId;
+    private String taskId;
     
     /**
      * 视频文件名

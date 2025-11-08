@@ -1,42 +1,66 @@
 package com.tbw.cut.service;
 
-import com.baomidou.mybatisplus.extension.service.IService;
-import com.tbw.cut.entity.VideoProcessTask;
-import com.tbw.cut.dto.VideoProcessTaskDTO;
+import com.tbw.cut.entity.SubmissionTask;
+import com.tbw.cut.entity.TaskSourceVideo;
+import com.tbw.cut.entity.TaskOutputSegment;
+import com.tbw.cut.entity.MergedVideo;
+import java.util.List;
 
-public interface VideoProcessService extends IService<VideoProcessTask> {
+public interface VideoProcessService {
     
     /**
-     * 创建视频处理任务
-     * @param dto 任务信息
-     * @return 任务ID
-     */
-    Long createProcessTask(VideoProcessTaskDTO dto);
-    
-    /**
-     * 执行视频处理任务
+     * 视频剪辑
      * @param taskId 任务ID
+     * @return 剪辑后的文件路径列表
      */
-    void executeProcessTask(Long taskId);
+    List<String> clipVideos(String taskId);
     
     /**
-     * 更新处理进度
+     * 视频合并
      * @param taskId 任务ID
-     * @param progress 进度百分比
+     * @return 合并后的文件路径
      */
-    void updateProgress(Long taskId, Integer progress);
+    String mergeVideos(String taskId);
+
+    /**
+     * 视频分段
+     * @param taskId 任务ID
+     * @return 分段后的文件路径列表
+     */
+    List<String> segmentVideo(String taskId);
     
     /**
-     * 完成处理任务
+     * 获取任务详情
      * @param taskId 任务ID
-     * @param outputPath 输出文件路径
+     * @return 任务详情
      */
-    void completeProcessTask(Long taskId, String outputPath);
+    SubmissionTask getTaskDetail(String taskId);
     
     /**
-     * 处理失败
+     * 获取任务源视频列表
      * @param taskId 任务ID
-     * @param errorMessage 错误信息
+     * @return 源视频列表
      */
-    void failProcessTask(Long taskId, String errorMessage);
+    List<TaskSourceVideo> getSourceVideos(String taskId);
+    
+    /**
+     * 保存输出分段
+     * @param taskId 任务ID
+     * @param segmentPaths 分段文件路径列表
+     */
+    void saveOutputSegments(String taskId, List<String> segmentPaths);
+    
+    /**
+     * 保存合并后的视频信息
+     * @param taskId 任务ID
+     * @param mergedVideoPath 合并后的视频路径
+     */
+    void saveMergedVideo(String taskId, String mergedVideoPath);
+    
+    /**
+     * 获取合并后的视频信息
+     * @param taskId 任务ID
+     * @return 合并后的视频信息列表
+     */
+    List<MergedVideo> getMergedVideos(String taskId);
 }
