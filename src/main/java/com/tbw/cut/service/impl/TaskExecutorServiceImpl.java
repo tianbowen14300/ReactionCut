@@ -61,7 +61,7 @@ public class TaskExecutorServiceImpl implements TaskExecutorService {
                 log.error("任务不存在，任务ID: {}", taskId);
                 return;
             }
-            
+
             // 2. 获取源视频列表
             List<TaskSourceVideo> sourceVideos = submissionTaskService.getSourceVideosByTaskId(taskId);
             if (sourceVideos.isEmpty()) {
@@ -69,7 +69,7 @@ public class TaskExecutorServiceImpl implements TaskExecutorService {
                 submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
                 return;
             }
-            
+
             // 3. 视频剪辑
             submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.CLIPPING);
             List<String> clipPaths = videoProcessService.clipVideos(taskId);
@@ -78,7 +78,7 @@ public class TaskExecutorServiceImpl implements TaskExecutorService {
                 submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
                 return;
             }
-            
+
             // 4. 视频合并
             submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.MERGING);
             String mergedPath = videoProcessService.mergeVideos(taskId);
@@ -87,7 +87,7 @@ public class TaskExecutorServiceImpl implements TaskExecutorService {
                 submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
                 return;
             }
-            
+
             // 5. 视频分段
             submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.SEGMENTING);
             List<String> segmentPaths = videoProcessService.segmentVideo(taskId);
@@ -102,11 +102,11 @@ public class TaskExecutorServiceImpl implements TaskExecutorService {
                     taskOutputSegment.setSegmentFilePath(segmentPaths.get(count));
                     taskOutputSegment.setPartName("P" + count);
                     taskOutputSegment.setPartOrder(count);
-                    taskOutputSegment.setUploadStatus(TaskOutputSegment.UploadStatus.SUCCESS);
+                    taskOutputSegment.setUploadStatus(TaskOutputSegment.UploadStatus.PENDING);
                     taskOutputSegmentMapper.insert(taskOutputSegment);
                 }
             }
-            
+
             // 6. 获取分段信息
             List<TaskOutputSegment> segments = submissionTaskService.getOutputSegmentsByTaskId(taskId);
             if (segments.isEmpty()) {
@@ -138,10 +138,76 @@ public class TaskExecutorServiceImpl implements TaskExecutorService {
             log.info("任务执行完成，任务ID: {}, BVID: {}", taskId, bvid);
         } catch (Exception e) {
             log.error("执行任务时发生异常，任务ID: {}", taskId, e);
+            // 检查是否是406错误（上传过快）
+            if (e.getMessage().contains("406")) {
+                log.warn("遇到406错误（上传过快），线程将暂停30分钟后再继续");
+                try {
+                    // 暂停30分钟（1800000毫秒）
+                    Thread.sleep(1800000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    log.error("线程中断", ie);
+                }
+            }
             submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
         }
     }
-    
+
+    @Override
+    public void videoUpload(String taskId) {
+        try {
+            // 1. 获取任务详情
+            SubmissionTask task = submissionTaskService.getTaskDetail(taskId);
+            if (task == null) {
+                log.error("任务不存在，任务ID: {}", taskId);
+                return;
+            }
+            // 6. 获取分段信息
+            List<TaskOutputSegment> segments = submissionTaskService.getOutputSegmentsByTaskId(taskId);
+            if (segments.isEmpty()) {
+                log.error("没有找到分段信息，任务ID: {}", taskId);
+                submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
+                return;
+            }
+
+            // 7. 上传分段文件到B站
+            submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.UPLOADING);
+            boolean uploadSuccess = bilibiliSubmissionService.uploadSegments(taskId, segments);
+            if (!uploadSuccess) {
+                log.error("上传分段文件到B站失败，任务ID: {}", taskId);
+                submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
+                return;
+            }
+
+            // 8. 提交视频到B站
+            String bvid = bilibiliSubmissionService.submitVideo(task, segments);
+            if (bvid == null) {
+                log.error("提交视频到B站失败，任务ID: {}", taskId);
+                submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
+                return;
+            }
+
+            // 9. 更新任务状态为完成
+            submissionTaskService.updateTaskStatusAndBvid(taskId, SubmissionTask.TaskStatus.COMPLETED, bvid);
+
+            log.info("任务执行完成，任务ID: {}, BVID: {}", taskId, bvid);
+        } catch (Exception e) {
+            log.error("执行任务时发生异常，任务ID: {}", taskId, e);
+            // 检查是否是406错误（上传过快）
+            if (e.getMessage().contains("406")) {
+                log.warn("遇到406错误（上传过快），线程将暂停30分钟后再继续");
+                try {
+                    // 暂停30分钟（1800000毫秒）
+                    Thread.sleep(1800000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    log.error("线程中断", ie);
+                }
+            }
+            submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
+        }
+    }
+
     @Async
     public void executeTaskAsync(String taskId) {
         try {
@@ -218,6 +284,17 @@ public class TaskExecutorServiceImpl implements TaskExecutorService {
 //            log.info("任务执行完成，任务ID: {}, BVID: {}", taskId, bvid);
         } catch (Exception e) {
             log.error("执行任务时发生异常，任务ID: {}", taskId, e);
+            // 检查是否是406错误（上传过快）
+            if (e.getMessage().contains("406")) {
+                log.warn("遇到406错误（上传过快），线程将暂停30分钟后再继续");
+                try {
+                    // 暂停30分钟（1800000毫秒）
+                    Thread.sleep(1800000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    log.error("线程中断", ie);
+                }
+            }
             submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
         }
     }

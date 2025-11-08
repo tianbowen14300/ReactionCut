@@ -146,6 +146,24 @@ export function segmentVideo(taskId) {
   })
 }
 
+/**
+ * 执行投稿任务
+ * @param {string} taskId 任务ID
+ * @returns {Promise} 执行结果
+ */
+export function executeTask(taskId) {
+  return request({
+    url: `/submission-tasks/${taskId}/execute`,
+    method: 'post'
+  }).then(response => {
+    if (response.code === 0) {
+      return response.data
+    } else {
+      return Promise.reject(new Error(response.message || '执行投稿任务失败'))
+    }
+  })
+}
+
 export default {
   createTask,
   getAllTasks,
@@ -153,5 +171,6 @@ export default {
   getTaskById,
   clipVideos,
   mergeVideos,
-  segmentVideo
+  segmentVideo,
+  executeTask
 }

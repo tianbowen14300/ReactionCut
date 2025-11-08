@@ -5,6 +5,7 @@ import com.tbw.cut.entity.TaskSourceVideo;
 import com.tbw.cut.entity.TaskOutputSegment;
 import com.tbw.cut.entity.MergedVideo;
 import com.tbw.cut.service.SubmissionTaskService;
+import com.tbw.cut.service.TaskExecutorService;
 import com.tbw.cut.service.VideoProcessService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +19,9 @@ public class SubmissionTaskController {
     
     @Autowired
     private SubmissionTaskService submissionTaskService;
+    
+    @Autowired
+    private TaskExecutorService taskExecutorService;
     
     @Autowired
     private VideoProcessService videoProcessService;
@@ -220,6 +224,29 @@ public class SubmissionTaskController {
         
         public void setSourceVideos(List<TaskSourceVideo> sourceVideos) {
             this.sourceVideos = sourceVideos;
+        }
+    }
+    
+    /**
+     * 执行指定任务
+     */
+    @PostMapping("/{taskId}/execute")
+    public Result<String> executeTask(@PathVariable("taskId") String taskId) {
+        try {
+            // 检查任务是否存在
+            SubmissionTask task = submissionTaskService.getTaskDetail(taskId);
+            if (task == null) {
+                return Result.error("任务不存在");
+            }
+            
+            // 异步执行任务
+            taskExecutorService.videoUpload(taskId);
+            
+            log.info("开始执行投稿任务，任务ID: {}", taskId);
+            return Result.success("任务已开始执行");
+        } catch (Exception e) {
+            log.error("执行投稿任务时发生异常，任务ID: {}", taskId, e);
+            return Result.error("执行投稿任务失败: " + e.getMessage());
         }
     }
 }

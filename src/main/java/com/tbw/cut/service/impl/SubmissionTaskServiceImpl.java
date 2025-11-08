@@ -128,6 +128,13 @@ public class SubmissionTaskServiceImpl implements SubmissionTaskService {
     }
     
     @Override
+    @Transactional
+    public void updateSegmentFilename(String segmentId, String filename) {
+        taskOutputSegmentMapper.updateFilename(segmentId, filename);
+        log.info("更新分段filename，分段ID: {}, Filename: {}", segmentId, filename);
+    }
+    
+    @Override
     public List<TaskOutputSegment> getSegmentsByTaskIdAndUploadStatus(String taskId, TaskOutputSegment.UploadStatus status) {
         return taskOutputSegmentMapper.findByTaskIdAndUploadStatus(taskId, status);
     }

@@ -27,7 +27,7 @@
         </el-table-column>
         <el-table-column prop="bvid" label="BVID" width="120"></el-table-column>
         <el-table-column prop="createdAt" label="创建时间" width="180"></el-table-column>
-        <el-table-column label="操作" width="250">
+        <el-table-column label="操作" width="300">
           <template slot-scope="scope">
             <el-button 
               size="mini" 
@@ -48,6 +48,12 @@
               size="mini" 
               @click="segmentVideo(scope.row)">
               视频分段
+            </el-button>
+            <el-button 
+              size="mini" 
+              type="success"
+              @click="submitVideo(scope.row)">
+              视频投稿
             </el-button>
           </template>
         </el-table-column>
@@ -311,7 +317,7 @@
 </template>
 
 <script>
-import { createTask, getAllTasks, getTasksByStatus, getTaskById, clipVideos, mergeVideos, segmentVideo, getMergedVideos } from '@/api/submission'
+import { createTask, getAllTasks, getTasksByStatus, getTaskById, clipVideos, mergeVideos, segmentVideo, getMergedVideos, executeTask } from '@/api/submission'
 import { scanPath } from '@/api/fileScanner'
 
 export default {
@@ -552,6 +558,26 @@ export default {
         console.log('分段后的文件路径:', response)
       }).catch(error => {
         this.$message.error('视频分段失败: ' + error.message)
+      })
+    },
+    
+    submitVideo(task) {
+      this.$message.info('开始视频投稿，任务ID: ' + task.taskId)
+      // 调用后端接口进行视频投稿
+      // 这里需要调用后端的执行任务接口
+      this.$confirm('确定要投稿这个视频吗？这将开始完整的投稿流程。', '提示', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(() => {
+        // 调用后端执行任务接口
+        executeTask(task.taskId).then(response => {
+          this.$message.success('投稿任务已开始执行')
+        }).catch(error => {
+          this.$message.error('投稿任务执行失败: ' + error.message)
+        })
+      }).catch(() => {
+        this.$message.info('已取消投稿')
       })
     },
     

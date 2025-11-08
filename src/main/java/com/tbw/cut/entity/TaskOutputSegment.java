@@ -29,6 +29,10 @@ public class TaskOutputSegment {
     @TableField(value = "cid")
     private Long cid;
     
+    // 添加filename字段
+    @TableField(value = "file_name")
+    private String filename;
+    
     public enum UploadStatus {
         PENDING, UPLOADING, SUCCESS, FAILED
     }

@@ -80,6 +80,13 @@ public interface SubmissionTaskService {
     void updateSegmentUploadStatusAndCid(String segmentId, TaskOutputSegment.UploadStatus status, Long cid);
     
     /**
+     * 更新分段的filename
+     * @param segmentId 分段ID
+     * @param filename B站文件名
+     */
+    void updateSegmentFilename(String segmentId, String filename);
+    
+    /**
      * 根据任务ID和上传状态查找分段
      * @param taskId 任务ID
      * @param status 上传状态

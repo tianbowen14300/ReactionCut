@@ -20,4 +20,7 @@ public interface TaskOutputSegmentMapper extends BaseMapper<TaskOutputSegment> {
     
     @Update("UPDATE task_output_segment SET upload_status = #{status}, cid = #{cid} WHERE segment_id = #{segmentId}")
     void updateUploadStatusAndCid(@Param("segmentId") String segmentId, @Param("status") TaskOutputSegment.UploadStatus status, @Param("cid") Long cid);
+    
+    @Update("UPDATE task_output_segment SET file_name = #{filename} WHERE segment_id = #{segmentId}")
+    void updateFilename(@Param("segmentId") String segmentId, @Param("filename") String filename);
 }

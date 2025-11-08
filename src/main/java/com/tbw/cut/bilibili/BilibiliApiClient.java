@@ -388,6 +388,9 @@ public class BilibiliApiClient {
                         return data.getString("cookie");
                     } else if (data.containsKey("cookies")) {
                         return data.getString("cookies");
+                    } else if (data.containsKey("url")) {
+                        // 从URL中提取Cookie信息
+                        return extractCookieFromUrl(data.getString("url"));
                     }
                 }
                 return null;
@@ -417,6 +420,14 @@ public class BilibiliApiClient {
                             // 同时生成本地文件
                             generateLoginInfoFile(loginInfo);
                             return data.getString("cookies");
+                        } else if (data.containsKey("url")) {
+                            // 从URL中提取Cookie信息
+                            String cookie = extractCookieFromUrl(data.getString("url"));
+                            if (cookie != null) {
+                                // 同时生成本地文件
+                                generateLoginInfoFile(loginInfo);
+                                return cookie;
+                            }
                         }
                     }
                 }
@@ -454,6 +465,10 @@ public class BilibiliApiClient {
                         return extractCsrfFromCookie(data.getString("cookie"));
                     } else if (data.containsKey("cookies")) {
                         return extractCsrfFromCookie(data.getString("cookies"));
+                    } else if (data.containsKey("url")) {
+                        // 从URL中提取Cookie信息，然后提取CSRF Token
+                        String cookie = extractCookieFromUrl(data.getString("url"));
+                        return extractCsrfFromCookie(cookie);
                     }
                 }
                 return null;
@@ -477,6 +492,14 @@ public class BilibiliApiClient {
                             return extractCsrfFromCookie(data.getString("cookie"));
                         } else if (data.containsKey("cookies")) {
                             return extractCsrfFromCookie(data.getString("cookies"));
+                        } else if (data.containsKey("url")) {
+                            // 从URL中提取Cookie信息，然后提取CSRF Token
+                            String cookie = extractCookieFromUrl(data.getString("url"));
+                            if (cookie != null) {
+                                // 同时生成本地文件
+                                generateLoginInfoFile(loginInfo);
+                                return extractCsrfFromCookie(cookie);
+                            }
                         }
                     }
                 }

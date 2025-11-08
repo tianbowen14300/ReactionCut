@@ -12,4 +12,6 @@ public interface TaskExecutorService {
      * @param taskId 任务ID
      */
     void executeTask(String taskId);
+
+    void videoUpload(String taskId);
 }

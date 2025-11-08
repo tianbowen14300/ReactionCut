@@ -1,27 +1,37 @@
 package com.tbw.cut.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.tbw.cut.entity.MergedVideo;
 import com.tbw.cut.entity.SubmissionTask;
 import com.tbw.cut.entity.TaskSourceVideo;
 import com.tbw.cut.entity.TaskOutputSegment;
 import com.tbw.cut.entity.VideoClip;
-import com.tbw.cut.entity.MergedVideo;
+import com.tbw.cut.mapper.MergedVideoMapper;
 import com.tbw.cut.mapper.SubmissionTaskMapper;
 import com.tbw.cut.mapper.TaskSourceVideoMapper;
 import com.tbw.cut.mapper.TaskOutputSegmentMapper;
 import com.tbw.cut.mapper.VideoClipMapper;
-import com.tbw.cut.mapper.MergedVideoMapper;
 import com.tbw.cut.service.VideoProcessService;
+import com.tbw.cut.utils.FFmpegUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
@@ -71,7 +81,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                 }
                 VideoClip videoClip = new VideoClip();
                 videoClip.setClipPath(clipPath);
-                videoClip.setTaskId(taskId); // 转换为Long类型
+                videoClip.setTaskId(taskId); // taskId已经是String类型，无需转换
                 videoClip.setSequence(sourceVideo.getSortOrder());
                 videoClip.setStartTime(sourceVideo.getStartTime());
                 videoClip.setEndTime(sourceVideo.getEndTime());
@@ -300,8 +310,54 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                 
                 int exitCode = process.exitValue();
                 if (exitCode == 0) {
-                    segmentPaths.add(segmentPath);
-                    log.info("✓ 成功创建分段: {}, 任务ID: {}", segmentPath, taskId);
+                    // 检查实际生成的文件
+                    File generatedFile = new File(segmentPath);
+                    if (generatedFile.exists()) {
+                        segmentPaths.add(segmentPath);
+                        log.info("✓ 成功创建分段: {}, 任务ID: {}", segmentPath, taskId);
+                    } else {
+                        // 如果文件不存在，尝试查找实际生成的文件
+                        // FFmpeg可能会根据文件名模式生成不同的文件名
+                        String baseName = fileName.substring(0, fileName.lastIndexOf('.'));
+                        String extension = fileName.substring(fileName.lastIndexOf('.'));
+                        File outputDirFile = new File(outputDir);
+                        
+                        // 首先尝试精确匹配
+                        File[] files = outputDirFile.listFiles((dir, name) -> 
+                            name.equals(fileName));
+                        
+                        if (files != null && files.length > 0) {
+                            String actualPath = files[0].getAbsolutePath();
+                            segmentPaths.add(actualPath);
+                            log.info("✓ 成功创建分段: {}, 任务ID: {}", actualPath, taskId);
+                        } else {
+                            // 如果精确匹配失败，尝试前缀匹配
+                            files = outputDirFile.listFiles((dir, name) -> 
+                                (name.startsWith(baseName) || name.startsWith(baseName + "_")) && name.endsWith(extension));
+                            
+                            if (files != null && files.length > 0) {
+                                // 选择最新的文件（按修改时间排序）
+                                Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
+                                String actualPath = files[0].getAbsolutePath();
+                                segmentPaths.add(actualPath);
+                                log.info("✓ 成功创建分段: {}, 任务ID: {}", actualPath, taskId);
+                            } else {
+                                // 如果还是找不到，尝试更宽松的匹配
+                                files = outputDirFile.listFiles((dir, name) -> 
+                                    name.contains(baseName) && name.endsWith(extension));
+                                
+                                if (files != null && files.length > 0) {
+                                    // 选择最新的文件（按修改时间排序）
+                                    Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
+                                    String actualPath = files[0].getAbsolutePath();
+                                    segmentPaths.add(actualPath);
+                                    log.info("✓ 成功创建分段: {}, 任务ID: {}", actualPath, taskId);
+                                } else {
+                                    log.warn("未能找到生成的分段文件，预期路径: {}, 任务ID: {}", segmentPath, taskId);
+                                }
+                            }
+                        }
+                    }
                 } else {
                     log.error("✗ 创建分段失败，任务ID: {}, 分段: {}, 退出码: {}", taskId, i + 1, exitCode);
                 }
