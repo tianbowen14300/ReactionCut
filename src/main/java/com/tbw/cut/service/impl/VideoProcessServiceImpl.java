@@ -215,6 +215,10 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                 return Collections.emptyList();
             }
             
+            // 获取任务信息，包括分段前缀
+            SubmissionTask task = getTaskDetail(taskId);
+            String segmentPrefix = task.getSegmentPrefix();
+            
             // 创建输出目录
             String workDir = getWorkDirectory(taskId);
             String outputDir = workDir + File.separator + "output";
@@ -252,7 +256,16 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                 
                 // 格式化文件编号 (001, 002, ...)
                 String fileNum = String.format("%03d", i + 1);
-                String segmentPath = outputDir + File.separator + "part_" + fileNum + ".mp4";
+                
+                // 构建分段文件名，使用分段前缀（如果有的话）
+                String fileName;
+                if (segmentPrefix != null && !segmentPrefix.isEmpty()) {
+                    fileName = segmentPrefix + "_part_" + fileNum + ".mp4";
+                } else {
+                    fileName = "part_" + fileNum + ".mp4";
+                }
+                
+                String segmentPath = outputDir + File.separator + fileName;
                 
                 log.info("[{}/{}] 时间: {} → {}, 任务ID: {}", i + 1, segmentCount, startTime, segmentPath, taskId);
                 
@@ -369,6 +382,8 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             return Collections.emptyList();
         }
     }
+    
+
     
     /**
      * 剪辑单个视频
@@ -594,7 +609,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
     /**
      * 从数据库获取合并后的视频路径
      */
-    private String getMergedVideoPathFromDatabase(String taskId) {
+    public String getMergedVideoPathFromDatabase(String taskId) {
         try {
             List<MergedVideo> mergedVideos = getMergedVideos(taskId);
             if (mergedVideos != null && !mergedVideos.isEmpty()) {

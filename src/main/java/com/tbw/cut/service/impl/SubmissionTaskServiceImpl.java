@@ -122,7 +122,7 @@ public class SubmissionTaskServiceImpl implements SubmissionTaskService {
     
     @Override
     @Transactional
-    public void updateSegmentUploadStatusAndCid(UUID segmentId, TaskOutputSegment.UploadStatus status, Long cid) {
+    public void updateSegmentUploadStatusAndCid(String segmentId, TaskOutputSegment.UploadStatus status, Long cid) {
         taskOutputSegmentMapper.updateUploadStatusAndCid(segmentId, status, cid);
         log.info("更新分段上传状态和CID，分段ID: {}, 状态: {}, CID: {}", segmentId, status, cid);
     }

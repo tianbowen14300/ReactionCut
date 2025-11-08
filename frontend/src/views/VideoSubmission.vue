@@ -89,6 +89,12 @@
           </el-col>
         </el-row>
         
+        <!-- 添加分段前缀输入框 -->
+        <el-form-item label="分段前缀" prop="segmentPrefix">
+          <el-input v-model="taskForm.segmentPrefix" placeholder="请输入分段前缀（可选）"></el-input>
+          <div class="el-form-item-tip">在对合并的视频进行分段时，每个分段视频的文件名都会加上该前缀</div>
+        </el-form-item>
+        
         <el-form-item label="视频简介" prop="description">
           <el-input 
             type="textarea" 
@@ -319,6 +325,7 @@ export default {
         partitionId: '',
         tags: '',
         videoType: 'ORIGINAL',
+        segmentPrefix: '', // 添加分段前缀字段
         sourceVideos: [
           {
             sourceFilePath: '',
@@ -456,7 +463,8 @@ export default {
               coverUrl: this.taskForm.coverUrl,
               partitionId: parseInt(this.taskForm.partitionId),
               tags: this.taskForm.tags,
-              videoType: this.taskForm.videoType
+              videoType: this.taskForm.videoType,
+              segmentPrefix: this.taskForm.segmentPrefix // 添加分段前缀字段
             },
             sourceVideos: this.taskForm.sourceVideos
           }
@@ -477,7 +485,7 @@ export default {
     },
     
     resetForm() {
-      this.$refs.taskForm.resetFields()
+      this.$refs.taskForm.resetFields();
       this.taskForm.sourceVideos = [
         {
           sourceFilePath: '',
@@ -485,7 +493,8 @@ export default {
           startTime: '00:00:00',
           endTime: '00:00:00'
         }
-      ]
+      ];
+      this.taskForm.segmentPrefix = ''; // 重置分段前缀字段
     },
     
     loadTasks() {

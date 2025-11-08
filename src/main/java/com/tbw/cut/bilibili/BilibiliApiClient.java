@@ -436,6 +436,87 @@ public class BilibiliApiClient {
     }
     
     /**
+     * 从登录信息中提取CSRF Token (bili_jct)
+     * @return CSRF Token字符串
+     */
+    public String extractCsrfTokenFromLoginInfo() {
+        try {
+            // 1. 优先从本地文件读取认证信息
+            File file = new File(LOGIN_INFO_FILE);
+            if (file.exists()) {
+                String content = new String(Files.readAllBytes(Paths.get(LOGIN_INFO_FILE)));
+                JSONObject loginInfo = JSONObject.parseObject(content);
+                
+                // 从登录信息中提取CSRF Token
+                if (loginInfo.containsKey("data")) {
+                    JSONObject data = loginInfo.getJSONObject("data");
+                    if (data.containsKey("cookie")) {
+                        return extractCsrfFromCookie(data.getString("cookie"));
+                    } else if (data.containsKey("cookies")) {
+                        return extractCsrfFromCookie(data.getString("cookies"));
+                    }
+                }
+                return null;
+            }
+            
+            // 2. 如果本地文件不存在，尝试从数据库读取
+            log.debug("本地登录信息文件不存在，尝试从数据库读取");
+            
+            // 这里需要根据实际业务逻辑确定如何获取用户ID
+            Long userId = 1L; // 默认用户ID，实际应用中需要动态获取
+            LoginInfo dbLoginInfo = loginInfoService.getByUserId(userId);
+            
+            if (dbLoginInfo != null) {
+                LoginInfo loginInfo = dbLoginInfo;
+                // 从数据库中的Cookie信息中提取CSRF Token
+                if (loginInfo.getCookieInfo() != null) {
+                    JSONObject cookieData = JSONObject.parseObject(loginInfo.getCookieInfo());
+                    if (cookieData.containsKey("data")) {
+                        JSONObject data = cookieData.getJSONObject("data");
+                        if (data.containsKey("cookie")) {
+                            return extractCsrfFromCookie(data.getString("cookie"));
+                        } else if (data.containsKey("cookies")) {
+                            return extractCsrfFromCookie(data.getString("cookies"));
+                        }
+                    }
+                }
+                
+                // 同时生成本地文件
+                generateLoginInfoFile(loginInfo);
+                return null;
+            }
+            
+            // 3. 如果数据库也不存在，提示需要登录
+            log.warn("本地文件和数据库中都不存在登录信息，请先登录");
+            
+        } catch (Exception e) {
+            log.warn("读取认证信息失败: {}", e.getMessage());
+        }
+        return null;
+    }
+    
+    /**
+     * 从Cookie字符串中提取CSRF Token (bili_jct)
+     * @param cookie Cookie字符串
+     * @return CSRF Token字符串
+     */
+    private String extractCsrfFromCookie(String cookie) {
+        if (cookie == null || cookie.isEmpty()) {
+            return null;
+        }
+        
+        // 按分号分割Cookie
+        String[] cookies = cookie.split(";");
+        for (String c : cookies) {
+            c = c.trim();
+            if (c.startsWith("bili_jct=")) {
+                return c.substring("bili_jct=".length());
+            }
+        }
+        return null;
+    }
+    
+    /**
      * 根据数据库登录信息生成本地文件
      * @param loginInfo 数据库登录信息
      */

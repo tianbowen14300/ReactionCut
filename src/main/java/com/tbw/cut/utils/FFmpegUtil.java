@@ -14,10 +14,10 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class FFmpegUtil {
     
-    @Value("${app.ffmpeg-path:/usr/local/bin/ffmpeg}")
+    @Value("${app.ffmpeg-path:/opt/homebrew/bin/ffmpeg}")
     private String ffmpegPath;
     
-    @Value("${app.ffprobe-path:/usr/local/bin/ffprobe}")
+    @Value("${app.ffprobe-path:/opt/homebrew/bin/ffprobe}")
     private String ffprobePath;
     
     @Value("${app.video-storage-dir:./videos}")

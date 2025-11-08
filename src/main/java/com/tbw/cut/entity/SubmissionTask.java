@@ -22,6 +22,10 @@ public class SubmissionTask {
     private Long collectionId;
     private String bvid;
     
+    // 添加分段前缀字段
+    @TableField(value = "segment_prefix")
+    private String segmentPrefix;
+    
     @TableField(value = "created_at")
     private Date createdAt;
     

@@ -4,8 +4,8 @@
 
 # 定义 FFmpeg 和 FFprobe 命令，假设它们在 PATH 中
 # 如果不在 PATH 中，请替换为完整路径，例如:
-# FFPROBE_CMD="/usr/local/bin/ffprobe"
-# FFMPEG_CMD="/usr/local/bin/ffmpeg"
+# FFPROBE_CMD="/opt/homebrew/bin/ffprobe"
+# FFMPEG_CMD="/opt/homebrew/bin/ffmpeg"
 FFPROBE_CMD="ffprobe"
 FFMPEG_CMD="ffmpeg"
 

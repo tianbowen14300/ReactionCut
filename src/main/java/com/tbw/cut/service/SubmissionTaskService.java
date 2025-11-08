@@ -77,7 +77,7 @@ public interface SubmissionTaskService {
      * @param status 上传状态
      * @param cid B站CID
      */
-    void updateSegmentUploadStatusAndCid(UUID segmentId, TaskOutputSegment.UploadStatus status, Long cid);
+    void updateSegmentUploadStatusAndCid(String segmentId, TaskOutputSegment.UploadStatus status, Long cid);
     
     /**
      * 根据任务ID和上传状态查找分段

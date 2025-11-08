@@ -33,7 +33,7 @@ ffmpeg:
   temp-dir: /Users/tbw/Reaction/temp
 
 video:
-  base-path: /Users/tbw/Reaction/cut
+  base-path: /Users/tbw/Reaction
 
 download:
   threads: 3

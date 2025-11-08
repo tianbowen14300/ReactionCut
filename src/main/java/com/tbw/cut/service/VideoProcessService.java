@@ -63,4 +63,11 @@ public interface VideoProcessService {
      * @return 合并后的视频信息列表
      */
     List<MergedVideo> getMergedVideos(String taskId);
+    
+    /**
+     * 从数据库获取合并后的视频路径
+     * @param taskId 任务ID
+     * @return 合并后的视频路径
+     */
+    String getMergedVideoPathFromDatabase(String taskId);
 }

@@ -19,5 +19,5 @@ public interface TaskOutputSegmentMapper extends BaseMapper<TaskOutputSegment> {
     List<TaskOutputSegment> findByTaskIdAndUploadStatus(@Param("taskId") String taskId, @Param("status") TaskOutputSegment.UploadStatus status);
     
     @Update("UPDATE task_output_segment SET upload_status = #{status}, cid = #{cid} WHERE segment_id = #{segmentId}")
-    void updateUploadStatusAndCid(@Param("segmentId") UUID segmentId, @Param("status") TaskOutputSegment.UploadStatus status, @Param("cid") Long cid);
+    void updateUploadStatusAndCid(@Param("segmentId") String segmentId, @Param("status") TaskOutputSegment.UploadStatus status, @Param("cid") Long cid);
 }
