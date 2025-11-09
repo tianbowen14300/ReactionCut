@@ -167,7 +167,7 @@
               <el-input v-model="downloadConfig.downloadPath" placeholder="请输入下载路径">
               </el-input>
               <div style="font-size: 12px; color: #999; margin-top: 5px;">
-                默认路径: /Users/tbw/Reaction/cut
+                默认路径: /Users/tbw/Reaction
               </div>
             </el-form-item>
           </el-form>

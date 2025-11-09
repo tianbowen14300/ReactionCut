@@ -332,4 +332,172 @@ DIY玩具	diy	2147
 星座占星	horoscope	2190		
 传统玄学	metaphysics	2191		
 疗愈成长	healing	2192		
-其他神秘学	other	2193	
+其他神秘学	other	2193
+
+视频分区接口：https://member.bilibili.com/x/vupre/web/archive/human/type2/list?t=1762667793986
+请求参数：t=1762667793986
+requestHeader:
+:authority
+member.bilibili.com
+:method
+GET
+:path
+/x/vupre/web/archive/human/type2/list?t=1762667793986
+:scheme
+https
+accept
+application/json, text/plain, */*
+accept-encoding
+gzip, deflate, br, zstd
+accept-language
+zh-CN,zh;q=0.9,en;q=0.8
+cookie
+buvid3=361B259A-DC03-55B8-617E-D8742F915A6B65452infoc; b_nut=1760966765; _uuid=986F2381-88B2-21BC-C3BF-3FB2B961A7C865676infoc; enable_web_push=DISABLE; buvid_fp=8c7f0043630b53fbde26ca08ba9a2c3c; buvid4=71F80A92-CD98-AEEE-1061-77F0D4CE0B2566800-025102021-WTzhfJnRJX5o5V4/vCLfhA%3D%3D; hit-dyn-v2=1; theme-tip-show=SHOWED; LIVE_BUVID=AUTO5017609667865759; rpdid=|(YYYkRkJum0J'u~Y|mYY)|Y; theme-avatar-tip-show=SHOWED; timeMachine=0; PVID=1; home_feed_column=5; theme-switch-show=SHOWED; sid=8m4w61m0; SESSDATA=72da3e58%2C1777095241%2C57aa9%2Aa2CjB2JjPWFjOGHYRTUVvwGKw51kt5-gCCGKfFsJ_3GTsdwC9p3imHfERisH-6D5A67D0SVl9tdVZKenZ2Wk5xcjZfc1NWc2M0RFU3NzdHYl9IOUxqRlZwUHh5Wmh5WGo2Q0l0YmZLZVVueG5tOS1PS2U1X1k3TE9pWWlXeThEMjRURk5DUlNhMVNBIIEC; DedeUserID=82679456; bili_jct=455dfc5f81a5d22d2bdbee220d41a871; browser_resolution=1920-958; share_source_origin=copy_web; bsource=share_source_copylink_web; bili_ticket=eyJhbGciOiJIUzI1NiIsImtpZCI6InMwMyIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NjI3NDgzNTQsImlhdCI6MTc2MjQ4OTA5NCwicGx0IjotMX0.8kSRKLcZN8ZACTHQuAaOg7eJc20-V0uaOlkZDH-Svoc; bili_ticket_expires=1762748294; bp_t_offset_82679456=1132751870033395712; ogv_device_support_hdr=1; CURRENT_QUALITY=125; CURRENT_FNVAL=4048; b_lsid=62AF663E_19A671C4634
+priority
+u=1, i
+referer
+https://member.bilibili.com/platform/upload/video/frame?type=edit&bvid=BV1GQkUBcEzQ
+sec-ch-ua
+"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"
+sec-ch-ua-mobile
+?0
+sec-ch-ua-platform
+"macOS"
+sec-fetch-dest
+empty
+sec-fetch-mode
+cors
+sec-fetch-site
+same-origin
+user-agent
+Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36
+返回结果：
+{
+"code": 0,
+"message": "0",
+"ttl": 1,
+"data": {
+"type_list": [
+{
+"id": 1001,
+"name": "影视"
+},
+{
+"id": 1002,
+"name": "娱乐"
+},
+{
+"id": 1003,
+"name": "音乐"
+},
+{
+"id": 1004,
+"name": "舞蹈"
+},
+{
+"id": 1005,
+"name": "动画"
+},
+{
+"id": 1006,
+"name": "绘画"
+},
+{
+"id": 1007,
+"name": "鬼畜"
+},
+{
+"id": 1008,
+"name": "游戏"
+},
+{
+"id": 1009,
+"name": "资讯"
+},
+{
+"id": 1010,
+"name": "知识"
+},
+{
+"id": 1011,
+"name": "人工智能"
+},
+{
+"id": 1012,
+"name": "科技数码"
+},
+{
+"id": 1013,
+"name": "汽车"
+},
+{
+"id": 1014,
+"name": "时尚美妆"
+},
+{
+"id": 1015,
+"name": "家装房产"
+},
+{
+"id": 1016,
+"name": "户外潮流"
+},
+{
+"id": 1017,
+"name": "健身"
+},
+{
+"id": 1018,
+"name": "体育运动"
+},
+{
+"id": 1019,
+"name": "手工"
+},
+{
+"id": 1020,
+"name": "美食"
+},
+{
+"id": 1021,
+"name": "小剧场"
+},
+{
+"id": 1022,
+"name": "旅游出行"
+},
+{
+"id": 1023,
+"name": "三农"
+},
+{
+"id": 1024,
+"name": "动物"
+},
+{
+"id": 1025,
+"name": "亲子"
+},
+{
+"id": 1026,
+"name": "健康"
+},
+{
+"id": 1027,
+"name": "情感"
+},
+{
+"id": 1029,
+"name": "vlog"
+},
+{
+"id": 1030,
+"name": "生活兴趣"
+},
+{
+"id": 1031,
+"name": "生活经验"
+}
+]
+}
+}

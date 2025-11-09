@@ -938,3 +938,962 @@ throw e;
 }
 在 GitHub 上编辑此页
 Copyright © 2020-2025 SocialSisterYi | CC-BY-NC-4.0 Licensed
+
+
+获取当前账号投稿合集
+https://member.bilibili.com/x2/creative/web/seasons?pn=1&ps=50&order=desc&sort=mtime&filter=1&t=1762667794013
+参数：pn=1&ps=50&order=desc&sort=mtime&filter=1&t=1762667794013
+requestHeader:
+:authority
+member.bilibili.com
+:method
+GET
+:path
+/x2/creative/web/seasons?pn=1&ps=50&order=desc&sort=mtime&filter=1&t=1762667794013
+:scheme
+https
+accept
+application/json, text/plain, */*
+accept-encoding
+gzip, deflate, br, zstd
+accept-language
+zh-CN,zh;q=0.9,en;q=0.8
+cookie
+buvid3=361B259A-DC03-55B8-617E-D8742F915A6B65452infoc; b_nut=1760966765; _uuid=986F2381-88B2-21BC-C3BF-3FB2B961A7C865676infoc; enable_web_push=DISABLE; buvid_fp=8c7f0043630b53fbde26ca08ba9a2c3c; buvid4=71F80A92-CD98-AEEE-1061-77F0D4CE0B2566800-025102021-WTzhfJnRJX5o5V4/vCLfhA%3D%3D; hit-dyn-v2=1; theme-tip-show=SHOWED; LIVE_BUVID=AUTO5017609667865759; rpdid=|(YYYkRkJum0J'u~Y|mYY)|Y; theme-avatar-tip-show=SHOWED; timeMachine=0; PVID=1; home_feed_column=5; theme-switch-show=SHOWED; sid=8m4w61m0; SESSDATA=72da3e58%2C1777095241%2C57aa9%2Aa2CjB2JjPWFjOGHYRTUVvwGKw51kt5-gCCGKfFsJ_3GTsdwC9p3imHfERisH-6D5A67D0SVl9tdVZKenZ2Wk5xcjZfc1NWc2M0RFU3NzdHYl9IOUxqRlZwUHh5Wmh5WGo2Q0l0YmZLZVVueG5tOS1PS2U1X1k3TE9pWWlXeThEMjRURk5DUlNhMVNBIIEC; DedeUserID=82679456; bili_jct=455dfc5f81a5d22d2bdbee220d41a871; browser_resolution=1920-958; share_source_origin=copy_web; bsource=share_source_copylink_web; bili_ticket=eyJhbGciOiJIUzI1NiIsImtpZCI6InMwMyIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NjI3NDgzNTQsImlhdCI6MTc2MjQ4OTA5NCwicGx0IjotMX0.8kSRKLcZN8ZACTHQuAaOg7eJc20-V0uaOlkZDH-Svoc; bili_ticket_expires=1762748294; bp_t_offset_82679456=1132751870033395712; ogv_device_support_hdr=1; CURRENT_QUALITY=125; CURRENT_FNVAL=4048; b_lsid=62AF663E_19A671C4634
+priority
+u=1, i
+referer
+https://member.bilibili.com/platform/upload/video/frame?type=edit&bvid=BV1GQkUBcEzQ
+sec-ch-ua
+"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"
+sec-ch-ua-mobile
+?0
+sec-ch-ua-platform
+"macOS"
+sec-fetch-dest
+empty
+sec-fetch-mode
+cors
+sec-fetch-site
+same-origin
+user-agent
+Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36
+返回参数：{
+"code": 0,
+"message": "0",
+"ttl": 1,
+"data": {
+"seasons": [
+{
+"season": {
+"id": 5681322,
+"title": "明前奶绿放映室",
+"desc": "",
+"cover": "https://s1.hdslb.com/bfs/templar/york-static/viedeo_material_default.png",
+"isEnd": 0,
+"mid": 82679456,
+"isAct": 0,
+"is_pay": 0,
+"state": 0,
+"partState": 0,
+"signState": 0,
+"rejectReason": "",
+"ctime": 1750424079,
+"mtime": 1762605184,
+"no_section": 1,
+"forbid": 0,
+"protocol_id": "",
+"ep_num": 0,
+"season_price": 0,
+"is_opened": 1,
+"has_charging_pay": 0,
+"has_pugv_pay": 0,
+"SeasonUpfrom": 0
+},
+"course": null,
+"checkin": {
+"status": 0,
+"status_reason": "",
+"season_status": 1
+},
+"seasonStat": {
+"view": 462001,
+"danmaku": 1510,
+"reply": 799,
+"fav": 4097,
+"coin": 667,
+"share": 201,
+"nowRank": 0,
+"hisRank": 0,
+"like": 3002,
+"subscription": 497,
+"vt": 0
+},
+"sections": {
+"sections": [
+{
+"id": 6303041,
+"type": 1,
+"seasonId": 5681322,
+"title": "正片",
+"order": 1,
+"state": 0,
+"partState": 0,
+"rejectReason": "",
+"ctime": 1750424079,
+"mtime": 1762605628,
+"epCount": 75,
+"cover": "http://i2.hdslb.com/bfs/archive/4589819b5cd21d3b95b3884744457e3bbd35312b.jpg",
+"has_charging_pay": 0,
+"Episodes": null,
+"show": 0,
+"has_pugv_pay": 0
+}
+]
+},
+"part_episodes": [
+{
+"id": 130830136,
+"title": "【奶绿放映室】奶绿《jiojio的奇妙冒险》Reaction合集",
+"aid": 114658262390574,
+"bvid": "BV1LXTrzCEJ3",
+"cid": 30420766094,
+"seasonId": 5681322,
+"sectionId": 6303041,
+"order": 1,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i2.hdslb.com/bfs/archive/8e76e8564468880076555e7eeada6eb93dd384ee.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+},
+{
+"id": 130830176,
+"title": "【奶绿放映室】奶绿《剑风传奇》Reaction合集",
+"aid": 114647961245566,
+"bvid": "BV1JUTRz9EpV",
+"cid": 30390421847,
+"seasonId": 5681322,
+"sectionId": 6303041,
+"order": 2,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i1.hdslb.com/bfs/archive/05c9edfa020c80d061a3e1dce05795594e398126.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+},
+{
+"id": 130830177,
+"title": "【奶绿放映室】奶绿《你的名字》Reaction合集",
+"aid": 114647239758950,
+"bvid": "BV17MTXzVENL",
+"cid": 30392385805,
+"seasonId": 5681322,
+"sectionId": 6303041,
+"order": 3,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": -4,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i1.hdslb.com/bfs/archive/a5a613eb0c258108a199414d9943f5b2db727004.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+},
+{
+"id": 130830178,
+"title": "【奶绿放映室】奶绿《漫长的季节》Reaction",
+"aid": 114645595657595,
+"bvid": "BV1otTQz6EEM",
+"cid": 30380985856,
+"seasonId": 5681322,
+"sectionId": 6303041,
+"order": 4,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i1.hdslb.com/bfs/archive/a65aa9359a8d35e89a9ce0e82be65a7352ae3cf2.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+}
+]
+},
+{
+"season": {
+"id": 6510629,
+"title": "雪王的视频时间",
+"desc": "",
+"cover": "https://archive.biliimg.com/bfs/archive/663d35761c06aa00eee089855067597c38430bcf.jpg",
+"isEnd": 0,
+"mid": 82679456,
+"isAct": 0,
+"is_pay": 0,
+"state": 0,
+"partState": 0,
+"signState": 0,
+"rejectReason": "",
+"ctime": 1759902718,
+"mtime": 1762523238,
+"no_section": 1,
+"forbid": 0,
+"protocol_id": "",
+"ep_num": 0,
+"season_price": 0,
+"is_opened": 1,
+"has_charging_pay": 0,
+"has_pugv_pay": 0,
+"SeasonUpfrom": 0
+},
+"course": null,
+"checkin": {
+"status": 0,
+"status_reason": "",
+"season_status": 1
+},
+"seasonStat": {
+"view": 71861,
+"danmaku": 41,
+"reply": 94,
+"fav": 312,
+"coin": 74,
+"share": 5,
+"nowRank": 0,
+"hisRank": 0,
+"like": 309,
+"subscription": 108,
+"vt": 0
+},
+"sections": {
+"sections": [
+{
+"id": 7190141,
+"type": 1,
+"seasonId": 6510629,
+"title": "正片",
+"order": 1,
+"state": 0,
+"partState": 0,
+"rejectReason": "",
+"ctime": 1759902718,
+"mtime": 1762524199,
+"epCount": 25,
+"cover": "http://i1.hdslb.com/bfs/archive/e085fd14e27ba45fca7ef25a33b02bb771434fbe.jpg",
+"has_charging_pay": 0,
+"Episodes": null,
+"show": 0,
+"has_pugv_pay": 0
+}
+]
+},
+"part_episodes": [
+{
+"id": 152318346,
+"title": "【雪王的视频时间】雪王的修仙之旅《孤独药滚》《Reaction合集 》",
+"aid": 115370522318696,
+"bvid": "BV1i949zFEwJ",
+"cid": 33056099773,
+"seasonId": 6510629,
+"sectionId": 7190141,
+"order": 1,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": -4,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i1.hdslb.com/bfs/archive/690ac74cc4f2635eb8b1ab8267f7428b1bb06cbf.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+},
+{
+"id": 152345832,
+"title": "【雪王的视频时间】雪王的修仙之旅《孤独药滚》（23~40）《Reaction合集 》",
+"aid": 115371277294716,
+"bvid": "BV13B4XzHEp6",
+"cid": 33059441012,
+"seasonId": 6510629,
+"sectionId": 7190141,
+"order": 2,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": -4,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i0.hdslb.com/bfs/archive/62bf1b645e001efe5d3533bf23c4d895b723306e.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+},
+{
+"id": 152382522,
+"title": "【雪王的视频时间】雪王的修仙之旅《孤独药滚》（41~60）《Reaction合集 》",
+"aid": 115372216816847,
+"bvid": "BV13944zLEuz",
+"cid": 33067238371,
+"seasonId": 6510629,
+"sectionId": 7190141,
+"order": 3,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": -4,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i0.hdslb.com/bfs/archive/6923937684525e1fa6ed0426e5c0a8a696231123.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+},
+{
+"id": 152410180,
+"title": "【雪王的视频时间】雪王的修仙之旅《孤独药滚》（61~82）《Reaction合集 》",
+"aid": 115372804084243,
+"bvid": "BV1Jp48zPEbq",
+"cid": 33069993453,
+"seasonId": 6510629,
+"sectionId": 7190141,
+"order": 4,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": -4,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i1.hdslb.com/bfs/archive/3d33d4e8fd4aa0827e11ea9e95537716e98b72e0.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+}
+]
+},
+{
+"season": {
+"id": 6519651,
+"title": "柚戏时间",
+"desc": "",
+"cover": "https://archive.biliimg.com/bfs/archive/b5f63fa5757cced7f44614481ffc3e299e997eee.jpg",
+"isEnd": 0,
+"mid": 82679456,
+"isAct": 0,
+"is_pay": 0,
+"state": 0,
+"partState": 0,
+"signState": 0,
+"rejectReason": "",
+"ctime": 1760006755,
+"mtime": 1760006789,
+"no_section": 1,
+"forbid": 0,
+"protocol_id": "",
+"ep_num": 0,
+"season_price": 0,
+"is_opened": 1,
+"has_charging_pay": 0,
+"has_pugv_pay": 0,
+"SeasonUpfrom": 0
+},
+"course": null,
+"checkin": {
+"status": 0,
+"status_reason": "",
+"season_status": 1
+},
+"seasonStat": {
+"view": 30577,
+"danmaku": 188,
+"reply": 113,
+"fav": 443,
+"coin": 128,
+"share": 25,
+"nowRank": 0,
+"hisRank": 0,
+"like": 314,
+"subscription": 5,
+"vt": 0
+},
+"sections": {
+"sections": [
+{
+"id": 7199767,
+"type": 1,
+"seasonId": 6519651,
+"title": "正片",
+"order": 1,
+"state": 0,
+"partState": 0,
+"rejectReason": "",
+"ctime": 1760006755,
+"mtime": 1760006790,
+"epCount": 2,
+"cover": "http://i2.hdslb.com/bfs/archive/c417b1f32331ff9732b81c159b60313d5cf1114b.jpg",
+"has_charging_pay": 0,
+"Episodes": null,
+"show": 0,
+"has_pugv_pay": 0
+}
+]
+},
+"part_episodes": [
+{
+"id": 151449643,
+"title": "【柚戏时间】姜贵妃的盛世天下【盛世天下】【合集】",
+"aid": 115223637794613,
+"bvid": "BV1AupvzCE3q",
+"cid": 32458672419,
+"seasonId": 6519651,
+"sectionId": 7199767,
+"order": 1,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i1.hdslb.com/bfs/archive/a57fa72aee6968ffee8a705dcf220d08426965d1.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+},
+{
+"id": 151449730,
+"title": "【柚戏时间】初次进入赛博朋克世界的姜柚恩【赛博朋克2077】【合集】",
+"aid": 115033266722001,
+"bvid": "BV1ZQbszREyP",
+"cid": 31719557537,
+"seasonId": 6519651,
+"sectionId": 7199767,
+"order": 2,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i2.hdslb.com/bfs/archive/c417b1f32331ff9732b81c159b60313d5cf1114b.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+}
+]
+},
+{
+"season": {
+"id": 5681329,
+"title": "明前奶绿的游戏时间",
+"desc": "",
+"cover": "https://s1.hdslb.com/bfs/templar/york-static/viedeo_material_default.png",
+"isEnd": 0,
+"mid": 82679456,
+"isAct": 0,
+"is_pay": 0,
+"state": 0,
+"partState": 0,
+"signState": 0,
+"rejectReason": "",
+"ctime": 1750424159,
+"mtime": 1759152226,
+"no_section": 1,
+"forbid": 0,
+"protocol_id": "",
+"ep_num": 0,
+"season_price": 0,
+"is_opened": 1,
+"has_charging_pay": 0,
+"has_pugv_pay": 0,
+"SeasonUpfrom": 0
+},
+"course": null,
+"checkin": {
+"status": 0,
+"status_reason": "",
+"season_status": 1
+},
+"seasonStat": {
+"view": 74365,
+"danmaku": 476,
+"reply": 225,
+"fav": 810,
+"coin": 122,
+"share": 101,
+"nowRank": 0,
+"hisRank": 0,
+"like": 793,
+"subscription": 54,
+"vt": 0
+},
+"sections": {
+"sections": [
+{
+"id": 6303050,
+"type": 1,
+"seasonId": 5681329,
+"title": "正片",
+"order": 1,
+"state": 0,
+"partState": 0,
+"rejectReason": "",
+"ctime": 1750424159,
+"mtime": 1759153838,
+"epCount": 21,
+"cover": "http://i0.hdslb.com/bfs/archive/3fa96e481668d58092ec2396db54820551c64e27.jpg",
+"has_charging_pay": 0,
+"Episodes": null,
+"show": 0,
+"has_pugv_pay": 0
+}
+]
+},
+"part_episodes": [
+{
+"id": 131027882,
+"title": "【奶绿的游戏时间】跟奶绿一起速通明朝《饿殍：明前千里行》",
+"aid": 114721898370767,
+"bvid": "BV1hoNmz7ETm",
+"cid": 30623336594,
+"seasonId": 5681329,
+"sectionId": 6303050,
+"order": 2,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i0.hdslb.com/bfs/archive/70ef29a377800fc4e42ad639c5ac1d2ba31d4748.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+},
+{
+"id": 131101339,
+"title": "【奶绿的游戏时间】奶绿的《捞女游戏》",
+"aid": 114715858575313,
+"bvid": "BV16KKNzLErz",
+"cid": 30603610275,
+"seasonId": 5681329,
+"sectionId": 6303050,
+"order": 3,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i2.hdslb.com/bfs/archive/2d60d5b80841e2bd21fa38a157c980aa9d82ba74.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+},
+{
+"id": 131252367,
+"title": "【奶绿的游戏时间】跟雫绿组合一起探险《双影奇境》！",
+"aid": 114730270201664,
+"bvid": "BV12eKxz2EP6",
+"cid": 30642212794,
+"seasonId": 5681329,
+"sectionId": 6303050,
+"order": 4,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i1.hdslb.com/bfs/archive/35b29555ff3b5833f21abc05ae754d1862e959ab.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+},
+{
+"id": 131953342,
+"title": "【奶绿的游戏时间】一起玩多重人生吧！【合集】",
+"aid": 114753422760533,
+"bvid": "BV1zKKqzvEm4",
+"cid": 30716725513,
+"seasonId": 5681329,
+"sectionId": 6303050,
+"order": 5,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i2.hdslb.com/bfs/archive/2ae93ce3b0295f315a80b5d943a8f5ef607713d9.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+}
+]
+},
+{
+"season": {
+"id": 5688683,
+"title": "Fulaco团录播",
+"desc": "",
+"cover": "https://s1.hdslb.com/bfs/templar/york-static/viedeo_material_default.png",
+"isEnd": 0,
+"mid": 82679456,
+"isAct": 0,
+"is_pay": 0,
+"state": 0,
+"partState": 0,
+"signState": 0,
+"rejectReason": "",
+"ctime": 1750509921,
+"mtime": 1750785492,
+"no_section": 1,
+"forbid": 0,
+"protocol_id": "",
+"ep_num": 0,
+"season_price": 0,
+"is_opened": 1,
+"has_charging_pay": 0,
+"has_pugv_pay": 0,
+"SeasonUpfrom": 0
+},
+"course": null,
+"checkin": {
+"status": 0,
+"status_reason": "",
+"season_status": 1
+},
+"seasonStat": {
+"view": 3018,
+"danmaku": 0,
+"reply": 0,
+"fav": 3,
+"coin": 0,
+"share": 0,
+"nowRank": 0,
+"hisRank": 0,
+"like": 39,
+"subscription": 0,
+"vt": 0
+},
+"sections": {
+"sections": [
+{
+"id": 6310958,
+"type": 1,
+"seasonId": 5688683,
+"title": "正片",
+"order": 1,
+"state": 0,
+"partState": 0,
+"rejectReason": "",
+"ctime": 1750509921,
+"mtime": 1750785780,
+"epCount": 58,
+"cover": "http://i2.hdslb.com/bfs/archive/098a0cbff1826e8186d81adb217d81e426b13c48.jpg",
+"has_charging_pay": 0,
+"Episodes": null,
+"show": 0,
+"has_pugv_pay": 0
+}
+]
+},
+"part_episodes": [
+{
+"id": 131004987,
+"title": "[Fulaco-龙舍蓝Oxo/直播回放] 【2D】忏悔吧！朕的爱卿！ 2025年06月20日 (弹幕版)",
+"aid": 114716898820181,
+"bvid": "BV15rKKz3Eun",
+"cid": 30608264351,
+"seasonId": 5688683,
+"sectionId": 6310958,
+"order": 1,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i0.hdslb.com/bfs/archive/ff800bb127cb33353da1cf840c0106a80f871517.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+},
+{
+"id": 131004988,
+"title": "[Fulaco-龙舍蓝Oxo/直播回放] 【2D】忏悔吧！朕的爱卿！ 2025年06月20日",
+"aid": 114716680652012,
+"bvid": "BV1rTKTzpEMT",
+"cid": 30607739412,
+"seasonId": 5688683,
+"sectionId": 6310958,
+"order": 2,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i0.hdslb.com/bfs/archive/2fdd7c37cae0cd10391f721ca22e9df303140ebf.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+},
+{
+"id": 131004989,
+"title": "[Fulaco-艾芽芽Cassa/直播回放] 歌回杂谈ing 2025年06月20日 (弹幕版)",
+"aid": 114713979519156,
+"bvid": "BV14sKcz2EiD",
+"cid": 30595090730,
+"seasonId": 5688683,
+"sectionId": 6310958,
+"order": 3,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i1.hdslb.com/bfs/archive/f42a0b4e5c4d72c7d3d8d5ab7e1520e0493a062e.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+},
+{
+"id": 131004990,
+"title": "[Fulaco-艾芽芽Cassa/直播回放] 歌回杂谈ing 2025年06月19日",
+"aid": 114712285021925,
+"bvid": "BV1SqKFzUEkb",
+"cid": 30590895991,
+"seasonId": 5688683,
+"sectionId": 6310958,
+"order": 4,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i2.hdslb.com/bfs/archive/1b3bc0ad04fc1e7689405bcfa00ed4bec2d14fef.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+}
+]
+},
+{
+"season": {
+"id": 5688672,
+"title": "宣小纸不怕火录播",
+"desc": "",
+"cover": "https://s1.hdslb.com/bfs/templar/york-static/viedeo_material_default.png",
+"isEnd": 0,
+"mid": 82679456,
+"isAct": 0,
+"is_pay": 0,
+"state": 0,
+"partState": 0,
+"signState": 0,
+"rejectReason": "",
+"ctime": 1750509859,
+"mtime": 1750509883,
+"no_section": 1,
+"forbid": 0,
+"protocol_id": "",
+"ep_num": 0,
+"season_price": 0,
+"is_opened": 1,
+"has_charging_pay": 0,
+"has_pugv_pay": 0,
+"SeasonUpfrom": 0
+},
+"course": null,
+"checkin": {
+"status": 0,
+"status_reason": "",
+"season_status": 1
+},
+"seasonStat": {
+"view": 959,
+"danmaku": 0,
+"reply": 5,
+"fav": 3,
+"coin": 0,
+"share": 0,
+"nowRank": 0,
+"hisRank": 0,
+"like": 20,
+"subscription": 0,
+"vt": 0
+},
+"sections": {
+"sections": [
+{
+"id": 6310947,
+"type": 1,
+"seasonId": 5688672,
+"title": "正片",
+"order": 1,
+"state": 0,
+"partState": 0,
+"rejectReason": "",
+"ctime": 1750509859,
+"mtime": 1750509883,
+"epCount": 11,
+"cover": "http://i0.hdslb.com/bfs/archive/d82382ed904876f269db005cabb87a40015efedd.jpg",
+"has_charging_pay": 0,
+"Episodes": null,
+"show": 0,
+"has_pugv_pay": 0
+}
+]
+},
+"part_episodes": [
+{
+"id": 131004835,
+"title": "[宣小纸不怕火/直播回放] 早安唱一下 2025年06月21日 (弹幕版)",
+"aid": 114720254203016,
+"bvid": "BV1hUNCzTEn3",
+"cid": 30615539045,
+"seasonId": 5688672,
+"sectionId": 6310947,
+"order": 1,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i1.hdslb.com/bfs/archive/591e06a7ef7db60ad2c2f5d343b2b3a73e26c889.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+},
+{
+"id": 131004836,
+"title": "[宣小纸不怕火/直播回放] 早安唱一下 2025年06月21日",
+"aid": 114719901876271,
+"bvid": "BV1FDNyzREwM",
+"cid": 30614947135,
+"seasonId": 5688672,
+"sectionId": 6310947,
+"order": 2,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i1.hdslb.com/bfs/archive/8d7dbf9cb0e9776247c5e68f8a2f92df20647eb5.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+},
+{
+"id": 131004837,
+"title": "[宣小纸不怕火/直播回放] 桌球之神 2025年06月19日 (弹幕版)",
+"aid": 114712268314063,
+"bvid": "BV1gzKFzEEi5",
+"cid": 30590831062,
+"seasonId": 5688672,
+"sectionId": 6310947,
+"order": 3,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i0.hdslb.com/bfs/archive/8f4664879190061e1dd44e6821d25fb88e774cc6.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+},
+{
+"id": 131004838,
+"title": "[宣小纸不怕火/直播回放] 桌球之神 2025年06月19日",
+"aid": 114710439532294,
+"bvid": "BV1qFNoz7Ew7",
+"cid": 30586440724,
+"seasonId": 5688672,
+"sectionId": 6310947,
+"order": 4,
+"videoTitle": "",
+"archiveTitle": "",
+"archiveState": 0,
+"rejectReason": "",
+"state": 0,
+"cover": "http://i2.hdslb.com/bfs/archive/69913c70069ad2f83a38f7109ba8ea263086677c.jpg",
+"is_free": 0,
+"aid_owner": false,
+"charging_pay": 0,
+"member_first": 0,
+"pugv_pay": 0,
+"limited_free": false
+}
+]
+}
+],
+"tip": {
+"title": "",
+"url": ""
+},
+"total": 6,
+"play_type": 1
+}
+}

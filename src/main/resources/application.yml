@@ -29,11 +29,8 @@ mybatis-plus:
 # 自定义配置
 ffmpeg:
   path: /opt/homebrew/bin/ffmpeg
-  video-storage-dir: /Users/tbw/Reaction/cut
+  video-storage-dir: /Users/tbw/Reaction
   temp-dir: /Users/tbw/Reaction/temp
-
-video:
-  base-path: /Users/tbw/Reaction
 
 download:
   threads: 3

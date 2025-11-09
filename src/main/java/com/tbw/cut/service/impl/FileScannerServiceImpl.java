@@ -16,7 +16,7 @@ import java.util.*;
 @Service
 public class FileScannerServiceImpl implements FileScannerService {
     
-    @Value("${video.base-path:/Users/tbw/Reaction/cut}")
+    @Value("${ffmpeg.video-storage-dir:/Users/tbw/Reaction}")
     private String basePath;
     
     @Override

@@ -86,10 +86,27 @@
           <el-col :span="12">
             <el-form-item label="B站分区" prop="partitionId">
               <el-select v-model="taskForm.partitionId" placeholder="请选择分区">
-                <el-option label="生活" value="171"></el-option>
-                <el-option label="知识" value="201"></el-option>
-                <el-option label="科技" value="181"></el-option>
-                <el-option label="游戏" value="191"></el-option>
+                <el-option
+                  v-for="partition in partitions"
+                  :key="partition.tid"
+                  :label="partition.name"
+                  :value="partition.tid">
+                </el-option>
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="视频合集" prop="collectionId">
+              <el-select v-model="taskForm.collectionId" placeholder="请选择合集" clearable>
+                <el-option
+                  v-for="collection in collections"
+                  :key="collection.seasonId"
+                  :label="collection.name"
+                  :value="collection.seasonId">
+                </el-option>
               </el-select>
             </el-form-item>
           </el-col>
@@ -319,6 +336,7 @@
 <script>
 import { createTask, getAllTasks, getTasksByStatus, getTaskById, clipVideos, mergeVideos, segmentVideo, getMergedVideos, executeTask } from '@/api/submission'
 import { scanPath } from '@/api/fileScanner'
+import { getUserCollections, getAllPartitions } from '@/api/bilibili'
 
 export default {
   name: 'VideoSubmission',
@@ -329,6 +347,7 @@ export default {
         description: '',
         coverUrl: '',
         partitionId: '',
+        collectionId: '', // 添加合集ID字段
         tags: '',
         videoType: 'ORIGINAL',
         segmentPrefix: '', // 添加分段前缀字段
@@ -366,14 +385,52 @@ export default {
       activeTab: 'basic',
       fileList: [],
       currentPath: '',
-      basePath: '/Users/tbw/Reaction/cut',
-      currentVideoIndex: -1
+      basePath: '/Users/tbw/Reaction',
+      currentVideoIndex: -1,
+      // 添加合集和分区数据
+      collections: [], // 合集列表
+      partitions: []   // 分区列表
     }
   },
   mounted() {
     this.loadTasks()
+    this.loadCollectionsAndPartitions() // 加载合集和分区数据
   },
   methods: {
+    // 加载合集和分区数据
+    async loadCollectionsAndPartitions() {
+      try {
+        // 加载合集数据（这里使用默认的用户ID 37737161，实际应用中应该动态获取）
+        const collectionsResponse = await getUserCollections(37737161);
+        this.collections = collectionsResponse;
+        
+        // 加载分区数据
+        const partitionsResponse = await getAllPartitions();
+        // 处理嵌套的分区结构，将子分区也展平到一级列表中
+        const flatPartitions = [];
+        partitionsResponse.forEach(partition => {
+          // 添加主分区
+          flatPartitions.push({
+            tid: partition.tid,
+            name: partition.name
+          });
+          
+          // 添加子分区（如果有）
+          if (partition.children && partition.children.length > 0) {
+            partition.children.forEach(child => {
+              flatPartitions.push({
+                tid: child.tid,
+                name: `${partition.name} - ${child.name}`
+              });
+            });
+          }
+        });
+        this.partitions = flatPartitions;
+      } catch (error) {
+        this.$message.error('加载合集和分区数据失败: ' + error.message);
+      }
+    },
+    
     showCreateTaskDialog() {
       this.createTaskDialogVisible = true
       this.$nextTick(() => {
@@ -468,6 +525,7 @@ export default {
               description: this.taskForm.description,
               coverUrl: this.taskForm.coverUrl,
               partitionId: parseInt(this.taskForm.partitionId),
+              collectionId: this.taskForm.collectionId ? parseInt(this.taskForm.collectionId) : null, // 添加合集ID
               tags: this.taskForm.tags,
               videoType: this.taskForm.videoType,
               segmentPrefix: this.taskForm.segmentPrefix // 添加分段前缀字段

@@ -153,6 +153,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             }
             
             // 构建FFmpeg命令：合并视频
+            // 使用重新编码而不是流复制，以确保生成的视频文件符合B站要求
             List<String> command = new ArrayList<>();
             command.add(ffmpegPath);
             command.add("-f");
@@ -161,8 +162,12 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             command.add("0");
             command.add("-i");
             command.add(concatFilePath);
-            command.add("-c");
-            command.add("copy");
+            command.add("-c:v");
+            command.add("libx264"); // 使用H.264编码
+            command.add("-c:a");
+            command.add("aac"); // 使用AAC音频编码
+            command.add("-strict");
+            command.add("experimental");
             command.add("-y");
             command.add(outputPath);
             
@@ -280,6 +285,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                 log.info("[{}/{}] 时间: {} → {}, 任务ID: {}", i + 1, segmentCount, startTime, segmentPath, taskId);
                 
                 // 构建FFmpeg命令：切割视频
+                // 使用重新编码而不是流复制，以确保生成的视频文件符合B站要求
                 List<String> command = new ArrayList<>();
                 command.add(ffmpegPath);
                 command.add("-ss");
@@ -288,8 +294,12 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                 command.add(mergedVideoPath);
                 command.add("-t");
                 command.add("00:02:13"); // 2分13秒
-                command.add("-c");
-                command.add("copy");
+                command.add("-c:v");
+                command.add("libx264"); // 使用H.264编码
+                command.add("-c:a");
+                command.add("aac"); // 使用AAC音频编码
+                command.add("-strict");
+                command.add("experimental");
                 command.add("-y");
                 command.add(segmentPath);
                 
@@ -321,41 +331,17 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                         String baseName = fileName.substring(0, fileName.lastIndexOf('.'));
                         String extension = fileName.substring(fileName.lastIndexOf('.'));
                         File outputDirFile = new File(outputDir);
-                        
-                        // 首先尝试精确匹配
                         File[] files = outputDirFile.listFiles((dir, name) -> 
-                            name.equals(fileName));
+                            name.startsWith(baseName) && name.endsWith(extension));
                         
                         if (files != null && files.length > 0) {
+                            // 选择最新的文件（按修改时间排序）
+                            Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
                             String actualPath = files[0].getAbsolutePath();
                             segmentPaths.add(actualPath);
                             log.info("✓ 成功创建分段: {}, 任务ID: {}", actualPath, taskId);
                         } else {
-                            // 如果精确匹配失败，尝试前缀匹配
-                            files = outputDirFile.listFiles((dir, name) -> 
-                                (name.startsWith(baseName) || name.startsWith(baseName + "_")) && name.endsWith(extension));
-                            
-                            if (files != null && files.length > 0) {
-                                // 选择最新的文件（按修改时间排序）
-                                Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
-                                String actualPath = files[0].getAbsolutePath();
-                                segmentPaths.add(actualPath);
-                                log.info("✓ 成功创建分段: {}, 任务ID: {}", actualPath, taskId);
-                            } else {
-                                // 如果还是找不到，尝试更宽松的匹配
-                                files = outputDirFile.listFiles((dir, name) -> 
-                                    name.contains(baseName) && name.endsWith(extension));
-                                
-                                if (files != null && files.length > 0) {
-                                    // 选择最新的文件（按修改时间排序）
-                                    Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
-                                    String actualPath = files[0].getAbsolutePath();
-                                    segmentPaths.add(actualPath);
-                                    log.info("✓ 成功创建分段: {}, 任务ID: {}", actualPath, taskId);
-                                } else {
-                                    log.warn("未能找到生成的分段文件，预期路径: {}, 任务ID: {}", segmentPath, taskId);
-                                }
-                            }
+                            log.warn("未能找到生成的分段文件，预期路径: {}, 任务ID: {}", segmentPath, taskId);
                         }
                     }
                 } else {
@@ -456,6 +442,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             String outputPath = clipsDir + File.separator + outputFileName;
             
             // 构建FFmpeg命令：剪辑视频
+            // 使用重新编码而不是流复制，以确保生成的视频文件符合B站要求
             List<String> command = new ArrayList<>();
             command.add(ffmpegPath);
             command.add("-i");
@@ -471,8 +458,12 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                 command.add(endTime);
             }
             
-            command.add("-c");
-            command.add("copy");
+            command.add("-c:v");
+            command.add("libx264"); // 使用H.264编码
+            command.add("-c:a");
+            command.add("aac"); // 使用AAC音频编码
+            command.add("-strict");
+            command.add("experimental");
             command.add("-y");
             command.add(outputPath);
             

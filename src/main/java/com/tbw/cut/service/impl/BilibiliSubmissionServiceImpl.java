@@ -221,6 +221,11 @@ public class BilibiliSubmissionServiceImpl implements BilibiliSubmissionService 
             submitData.put("no_disturbance", 0);
             submitData.put("no_reprint", 1);
             
+            // 添加合集信息（如果存在）
+            if (task.getCollectionId() != null && task.getCollectionId() > 0) {
+                submitData.put("season_id", task.getCollectionId());
+            }
+            
             JSONObject subtitle = new JSONObject();
             subtitle.put("open", 0);
             subtitle.put("lan", "");
