@@ -210,7 +210,7 @@ public class BilibiliSubmissionServiceImpl implements BilibiliSubmissionService 
             submitData.put("cover43", "");
             submitData.put("title", task.getTitle());
             submitData.put("copyright", task.getVideoType() == com.tbw.cut.entity.SubmissionTask.VideoType.ORIGINAL ? 1 : 2);
-            submitData.put("tid", task.getPartitionId());
+            submitData.put("human_type2", task.getPartitionId());
             submitData.put("tag", task.getTags());
             submitData.put("desc_format_id", 9999);
             submitData.put("desc", task.getDescription());
@@ -238,12 +238,36 @@ public class BilibiliSubmissionServiceImpl implements BilibiliSubmissionService 
             submitData.put("up_close_danmu", false);
             submitData.put("web_os", 3);
             
+            // 打印提交数据用于调试
+            log.info("提交数据: {}", submitData.toJSONString());
+            
             // 提交视频
             JSONObject result = videoUploadService.submitVideo(submitData);
             
             if (result.getIntValue("code") == 0) {
                 String bvid = result.getJSONObject("data").getString("bvid");
-                log.info("视频投稿成功，任务ID: {}, BVID: {}", task.getTaskId(), bvid);
+                Long aid = result.getJSONObject("data").getLong("aid");
+                log.info("视频投稿成功，任务ID: {}, BVID: {}, AID: {}", task.getTaskId(), bvid, aid);
+                
+                // 如果任务配置了合集ID，则关联合集
+                if (task.getCollectionId() != null && task.getCollectionId() > 0) {
+                    log.info("任务配置了合集ID，开始关联合集，任务ID: {}", task.getTaskId());
+                    boolean seasonAssociated = associateWithSeason(task, aid);
+                    if (seasonAssociated) {
+                        log.info("视频关联合集成功，任务ID: {}", task.getTaskId());
+                        
+                        // 将视频添加到合集章节
+                        boolean episodesAdded = addEpisodesToSection(task, aid, segments);
+                        if (episodesAdded) {
+                            log.info("视频添加到合集章节成功，任务ID: {}", task.getTaskId());
+                        } else {
+                            log.error("视频添加到合集章节失败，任务ID: {}", task.getTaskId());
+                        }
+                    } else {
+                        log.error("视频关联合集失败，任务ID: {}", task.getTaskId());
+                    }
+                }
+                
                 return bvid;
             } else {
                 log.error("视频投稿失败: {}", result.toJSONString());
@@ -252,6 +276,81 @@ public class BilibiliSubmissionServiceImpl implements BilibiliSubmissionService 
         } catch (Exception e) {
             log.error("提交视频到B站时发生异常，任务ID: {}", task.getTaskId(), e);
             return null;
+        }
+    }
+    
+    @Override
+    public boolean associateWithSeason(SubmissionTask task, Long aid) {
+        // 检查任务是否配置了合集ID
+        if (task.getCollectionId() == null || task.getCollectionId() <= 0) {
+            log.info("任务未配置合集ID，跳过关联合集操作，任务ID: {}", task.getTaskId());
+            return true;
+        }
+        
+        try {
+            log.info("开始关联合集，任务ID: {}, 合集ID: {}, 视频AID: {}", 
+                task.getTaskId(), task.getCollectionId(), aid);
+            
+            // 获取合集章节信息，使用默认章节ID 0
+            Long sectionId = 0L;
+            
+            // 调用B站API关联合集
+            JSONObject result = videoUploadService.associateWithSeason(
+                task.getCollectionId(), sectionId, task.getTitle(), aid);
+            
+            if (result.getIntValue("code") == 0) {
+                log.info("视频关联合集成功，任务ID: {}, 合集ID: {}, 视频AID: {}", 
+                    task.getTaskId(), task.getCollectionId(), aid);
+                return true;
+            } else {
+                log.error("视频关联合集失败，任务ID: {}, 合集ID: {}, 视频AID: {}, 错误信息: {}", 
+                    task.getTaskId(), task.getCollectionId(), aid, result.toJSONString());
+                return false;
+            }
+        } catch (Exception e) {
+            log.error("关联合集时发生异常，任务ID: {}, 合集ID: {}", task.getTaskId(), task.getCollectionId(), e);
+            return false;
+        }
+    }
+    
+    @Override
+    public boolean addEpisodesToSection(SubmissionTask task, Long aid, List<TaskOutputSegment> segments) {
+        // 检查任务是否配置了合集ID
+        if (task.getCollectionId() == null || task.getCollectionId() <= 0) {
+            log.info("任务未配置合集ID，跳过添加到章节操作，任务ID: {}", task.getTaskId());
+            return true;
+        }
+        
+        try {
+            log.info("开始将视频添加到合集章节，任务ID: {}, 合集ID: {}, 视频AID: {}", 
+                task.getTaskId(), task.getCollectionId(), aid);
+            
+            // 构建视频列表
+            List<JSONObject> episodes = new ArrayList<>();
+            for (int i = 0; i < segments.size(); i++) {
+                TaskOutputSegment segment = segments.get(i);
+                JSONObject episode = new JSONObject();
+                episode.put("title", "P" + (i + 1));
+                episode.put("cid", segment.getCid());
+                episode.put("aid", aid);
+                episodes.add(episode);
+            }
+            
+            // 调用B站API将视频添加到章节
+            JSONObject result = videoUploadService.addEpisodesToSection(0L, episodes);
+            
+            if (result.getIntValue("code") == 0) {
+                log.info("视频添加到合集章节成功，任务ID: {}, 合集ID: {}, 视频AID: {}", 
+                    task.getTaskId(), task.getCollectionId(), aid);
+                return true;
+            } else {
+                log.error("视频添加到合集章节失败，任务ID: {}, 合集ID: {}, 视频AID: {}, 错误信息: {}", 
+                    task.getTaskId(), task.getCollectionId(), aid, result.toJSONString());
+                return false;
+            }
+        } catch (Exception e) {
+            log.error("添加到章节时发生异常，任务ID: {}, 合集ID: {}", task.getTaskId(), task.getCollectionId(), e);
+            return false;
         }
     }
 }

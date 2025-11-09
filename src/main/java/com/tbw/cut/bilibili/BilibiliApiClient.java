@@ -564,4 +564,62 @@ public class BilibiliApiClient {
     public void setRestTemplate(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
     }
+    
+    /**
+     * 获取用户合集列表
+     * @param userId 用户ID
+     * @return 合集列表
+     */
+    public String getUserSeasons(Long userId) {
+        try {
+            String url = baseUrl + "/x/polymer/web-space/seasons_archives_list";
+            Map<String, String> params = new HashMap<>();
+            params.put("mid", userId.toString());
+            params.put("sort_reverse", "false");
+            params.put("page_num", "1");
+            params.put("page_size", "100");
+            
+            return getWithWbiSign(url, params);
+        } catch (Exception e) {
+            log.error("获取用户合集列表失败: {}", e.getMessage(), e);
+            throw new RuntimeException("获取用户合集列表失败: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 获取合集章节信息
+     * @param seasonId 合集ID
+     * @return 合集章节信息
+     */
+    public String getSeasonSections(Long seasonId) {
+        try {
+            String url = baseUrl + "/x/polymer/web-space/seasons_sections";
+            Map<String, String> params = new HashMap<>();
+            params.put("season_id", seasonId.toString());
+            
+            return getWithWbiSign(url, params);
+        } catch (Exception e) {
+            log.error("获取合集章节信息失败: {}", e.getMessage(), e);
+            throw new RuntimeException("获取合集章节信息失败: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 获取B站视频分区列表
+     * @return 视频分区列表
+     */
+    public String getVideoPartitions() {
+        try {
+            String url = baseUrl + "/x/web-interface/rcmd/reason/top";
+            Map<String, String> params = new HashMap<>();
+            params.put("ps", "14");
+            params.put("fresh_idx", "1");
+            params.put("fresh_idx_1h", "1");
+            
+            return get(url, params);
+        } catch (Exception e) {
+            log.error("获取视频分区列表失败: {}", e.getMessage(), e);
+            throw new RuntimeException("获取视频分区列表失败: " + e.getMessage(), e);
+        }
+    }
 }

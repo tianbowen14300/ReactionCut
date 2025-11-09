@@ -161,7 +161,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             command.add("-safe");
             command.add("0");
             command.add("-i");
-            command.add(concatFilePath);
+            command.add("\"" + concatFilePath + "\""); // 添加引号以处理特殊字符
             command.add("-c:v");
             command.add("libx264"); // 使用H.264编码
             command.add("-c:a");
@@ -169,11 +169,12 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             command.add("-strict");
             command.add("experimental");
             command.add("-y");
-            command.add(outputPath);
+            command.add("\"" + outputPath + "\""); // 添加引号以处理特殊字符
             
             log.info("执行FFmpeg合并命令: {}", String.join(" ", command));
             
-            ProcessBuilder builder = new ProcessBuilder(command);
+            // 使用Shell执行命令以正确处理引号
+            ProcessBuilder builder = new ProcessBuilder("/bin/sh", "-c", String.join(" ", command));
             Process process = builder.start();
             
             // 读取输出
@@ -291,7 +292,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                 command.add("-ss");
                 command.add(startTime);
                 command.add("-i");
-                command.add(mergedVideoPath);
+                command.add("\"" + mergedVideoPath + "\""); // 添加引号以处理特殊字符
                 command.add("-t");
                 command.add("00:02:13"); // 2分13秒
                 command.add("-c:v");
@@ -301,11 +302,12 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                 command.add("-strict");
                 command.add("experimental");
                 command.add("-y");
-                command.add(segmentPath);
+                command.add("\"" + segmentPath + "\""); // 添加引号以处理特殊字符
                 
                 log.debug("执行FFmpeg切割命令: {}", String.join(" ", command));
                 
-                ProcessBuilder builder = new ProcessBuilder(command);
+                // 使用Shell执行命令以正确处理引号
+                ProcessBuilder builder = new ProcessBuilder("/bin/sh", "-c", String.join(" ", command));
                 Process process = builder.start();
                 
                 // 读取输出
@@ -446,7 +448,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             List<String> command = new ArrayList<>();
             command.add(ffmpegPath);
             command.add("-i");
-            command.add(inputPath);
+            command.add("\"" + inputPath + "\""); // 添加引号以处理特殊字符
             
             if (startTime != null && !startTime.isEmpty() && !startTime.equals("00:00:00")) {
                 command.add("-ss");
@@ -465,11 +467,12 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             command.add("-strict");
             command.add("experimental");
             command.add("-y");
-            command.add(outputPath);
+            command.add("\"" + outputPath + "\""); // 添加引号以处理特殊字符
             
             log.info("执行FFmpeg剪辑命令: {}", String.join(" ", command));
             
-            ProcessBuilder builder = new ProcessBuilder(command);
+            // 使用Shell执行命令以正确处理引号
+            ProcessBuilder builder = new ProcessBuilder("/bin/sh", "-c", String.join(" ", command));
             Process process = builder.start();
             
             // 读取输出
@@ -575,6 +578,9 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             // 在视频所在目录下创建任务目录
             String taskDir = baseDir + File.separator + "video_task_" + taskId;
             
+            // 确保目录路径中的特殊字符被正确处理
+            taskDir = taskDir.replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)");
+            
             File dir = new File(taskDir);
             if (!dir.exists()) {
                 dir.mkdirs();
@@ -618,7 +624,9 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             if (baseDirFile.exists() && baseDirFile.isDirectory()) {
                 File[] taskDirs = baseDirFile.listFiles((dir, name) -> name.contains(taskDirPattern));
                 if (taskDirs != null && taskDirs.length > 0) {
-                    return taskDirs[0].getAbsolutePath();
+                    String taskDir = taskDirs[0].getAbsolutePath();
+                    // 确保目录路径中的特殊字符被正确处理
+                    return taskDir.replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)");
                 }
             }
             

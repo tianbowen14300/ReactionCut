@@ -114,7 +114,7 @@ public class TaskExecutorServiceImpl implements TaskExecutorService {
                 submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
                 return;
             }
-            
+
             // 7. 上传分段文件到B站
             submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.UPLOADING);
             boolean uploadSuccess = bilibiliSubmissionService.uploadSegments(taskId, segments);
@@ -123,7 +123,7 @@ public class TaskExecutorServiceImpl implements TaskExecutorService {
                 submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
                 return;
             }
-            
+
             // 8. 提交视频到B站
             String bvid = bilibiliSubmissionService.submitVideo(task, segments);
             if (bvid == null) {
@@ -131,10 +131,10 @@ public class TaskExecutorServiceImpl implements TaskExecutorService {
                 submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
                 return;
             }
-            
+
             // 9. 更新任务状态为完成
             submissionTaskService.updateTaskStatusAndBvid(taskId, SubmissionTask.TaskStatus.COMPLETED, bvid);
-            
+
             log.info("任务执行完成，任务ID: {}, BVID: {}", taskId, bvid);
         } catch (Exception e) {
             log.error("执行任务时发生异常，任务ID: {}", taskId, e);

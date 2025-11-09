@@ -22,4 +22,21 @@ public interface BilibiliSubmissionService {
      * @return B站视频ID(BVID)
      */
     String submitVideo(SubmissionTask task, List<TaskOutputSegment> segments);
+    
+    /**
+     * 关联视频到合集
+     * @param task 投稿任务
+     * @param aid 视频AID
+     * @return 是否关联合集成功
+     */
+    boolean associateWithSeason(SubmissionTask task, Long aid);
+    
+    /**
+     * 将视频添加到合集章节
+     * @param task 投稿任务
+     * @param aid 视频AID
+     * @param segments 视频分段列表
+     * @return 是否添加到章节成功
+     */
+    boolean addEpisodesToSection(SubmissionTask task, Long aid, List<TaskOutputSegment> segments);
 }

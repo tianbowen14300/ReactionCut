@@ -59,4 +59,22 @@ public interface BilibiliVideoUploadService {
      * @return 投稿结果，包含aid和bvid
      */
     JSONObject submitVideo(JSONObject submitData);
+    
+    /**
+     * 关联视频到合集
+     * @param seasonId 合集ID
+     * @param sectionId 章节ID
+     * @param title 视频标题
+     * @param aid 视频AID
+     * @return 关联结果
+     */
+    JSONObject associateWithSeason(Long seasonId, Long sectionId, String title, Long aid);
+    
+    /**
+     * 将视频添加到合集章节
+     * @param sectionId 章节ID
+     * @param episodes 视频列表
+     * @return 添加结果
+     */
+    JSONObject addEpisodesToSection(Long sectionId, List<JSONObject> episodes);
 }

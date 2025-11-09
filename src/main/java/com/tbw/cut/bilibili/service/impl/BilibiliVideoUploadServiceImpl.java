@@ -14,6 +14,7 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.StringJoiner;
 
 /**
@@ -369,6 +370,52 @@ public class BilibiliVideoUploadServiceImpl implements BilibiliVideoUploadServic
         throw new RuntimeException("提交视频投稿失败，已达到最大重试次数");
     }
     
+    @Override
+    public JSONObject associateWithSeason(Long seasonId, Long sectionId, String title, Long aid) {
+        int maxRetries = 3;
+        int retryCount = 0;
+        
+        while (retryCount < maxRetries) {
+            try {
+                String url = memberBaseUrl + "/x2/creative/web/season/switch";
+                String csrf = apiClient.extractCsrfTokenFromLoginInfo();
+                
+                String fullUrl = url + "?t=" + System.currentTimeMillis() + "&csrf=" + csrf;
+                log.info("关联视频到合集: {}", fullUrl);
+                
+                // 构建请求体
+                JSONObject requestData = new JSONObject();
+                requestData.put("season_id", seasonId);
+                requestData.put("section_id", sectionId);
+                requestData.put("title", title);
+                requestData.put("aid", aid);
+                requestData.put("csrf", csrf);
+                
+                // 发送请求
+                String response = callAssociateWithSeasonApi(fullUrl, requestData.toJSONString());
+                return JSONObject.parseObject(response);
+            } catch (Exception e) {
+                retryCount++;
+                log.error("关联视频到合集失败，第{}次尝试: {}", retryCount, e.getMessage(), e);
+                
+                if (retryCount < maxRetries) {
+                    // 等待2^retryCount秒再重试（指数退避）
+                    try {
+                        Thread.sleep((long) Math.pow(2, retryCount) * 1000);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("线程中断", ie);
+                    }
+                } else {
+                    // 达到最大重试次数，抛出异常
+                    throw new RuntimeException("关联视频到合集失败，已达到最大重试次数: " + e.getMessage(), e);
+                }
+            }
+        }
+        
+        throw new RuntimeException("关联视频到合集失败，已达到最大重试次数");
+    }
+    
     // 以下为辅助方法，用于直接调用HTTP API
     
     private String callPreUploadApi(String url) throws IOException {
@@ -465,6 +512,74 @@ public class BilibiliVideoUploadServiceImpl implements BilibiliVideoUploadServic
     }
     
     private String callSubmitVideoApi(String url, String body) throws IOException {
+        HttpURLConnection conn = createConnection(url, "POST");
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+        
+        try (OutputStream out = conn.getOutputStream()) {
+            out.write(body.getBytes(StandardCharsets.UTF_8));
+        }
+        
+        return readResponse(conn);
+    }
+    
+    private String callAssociateWithSeasonApi(String url, String body) throws IOException {
+        HttpURLConnection conn = createConnection(url, "POST");
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+        
+        try (OutputStream out = conn.getOutputStream()) {
+            out.write(body.getBytes(StandardCharsets.UTF_8));
+        }
+        
+        return readResponse(conn);
+    }
+    
+    @Override
+    public JSONObject addEpisodesToSection(Long sectionId, List<JSONObject> episodes) {
+        int maxRetries = 3;
+        int retryCount = 0;
+        
+        while (retryCount < maxRetries) {
+            try {
+                String url = memberBaseUrl + "/x2/creative/web/season/section/episodes/add";
+                String csrf = apiClient.extractCsrfTokenFromLoginInfo();
+                
+                String fullUrl = url + "?t=" + System.currentTimeMillis() + "&csrf=" + csrf;
+                log.info("将视频添加到合集章节: {}", fullUrl);
+                
+                // 构建请求体
+                JSONObject requestData = new JSONObject();
+                requestData.put("sectionId", sectionId);
+                requestData.put("episodes", episodes);
+                requestData.put("csrf", csrf);
+                
+                // 发送请求
+                String response = callAddEpisodesToSectionApi(fullUrl, requestData.toJSONString());
+                return JSONObject.parseObject(response);
+            } catch (Exception e) {
+                retryCount++;
+                log.error("将视频添加到合集章节失败，第{}次尝试: {}", retryCount, e.getMessage(), e);
+                
+                if (retryCount < maxRetries) {
+                    // 等待2^retryCount秒再重试（指数退避）
+                    try {
+                        Thread.sleep((long) Math.pow(2, retryCount) * 1000);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("线程中断", ie);
+                    }
+                } else {
+                    // 达到最大重试次数，抛出异常
+                    throw new RuntimeException("将视频添加到合集章节失败，已达到最大重试次数: " + e.getMessage(), e);
+                }
+            }
+        }
+        
+        throw new RuntimeException("将视频添加到合集章节失败，已达到最大重试次数");
+    }
+    
+    private String callAddEpisodesToSectionApi(String url, String body) throws IOException {
         HttpURLConnection conn = createConnection(url, "POST");
         conn.setRequestProperty("Content-Type", "application/json");
         conn.setDoOutput(true);
