@@ -610,11 +610,9 @@ public class BilibiliApiClient {
      */
     public String getVideoPartitions() {
         try {
-            String url = baseUrl + "/x/web-interface/rcmd/reason/top";
+            String url = baseUrl + "/x/vupre/web/archive/human/type2";
             Map<String, String> params = new HashMap<>();
-            params.put("ps", "14");
-            params.put("fresh_idx", "1");
-            params.put("fresh_idx_1h", "1");
+            params.put("t", String.valueOf(System.currentTimeMillis()));
             
             return get(url, params);
         } catch (Exception e) {
