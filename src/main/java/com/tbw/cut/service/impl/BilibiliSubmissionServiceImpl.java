@@ -264,7 +264,9 @@ public class BilibiliSubmissionServiceImpl implements BilibiliSubmissionService 
                             log.error("视频添加到合集章节失败，任务ID: {}", task.getTaskId());
                         }
                     } else {
-                        log.error("视频关联合集失败，任务ID: {}", task.getTaskId());
+                        log.error("视频关联合集失败，任务ID: {}，将继续处理其他任务", task.getTaskId());
+                        // 即使关联合集失败，也继续完成任务，不中断整个投稿流程
+                        // 这样可以确保视频能够成功投稿，只是没有关联合集
                     }
                 }
                 
@@ -294,6 +296,12 @@ public class BilibiliSubmissionServiceImpl implements BilibiliSubmissionService 
             // 获取合集章节信息，使用默认章节ID 0
             Long sectionId = 0L;
             
+            // 检查合集ID是否有效
+            if (task.getCollectionId() == null || task.getCollectionId() <= 0) {
+                log.error("关联合集失败，合集ID无效，任务ID: {}, 合集ID: {}", task.getTaskId(), task.getCollectionId());
+                return false;
+            }
+            
             // 调用B站API关联合集
             JSONObject result = videoUploadService.associateWithSeason(
                 task.getCollectionId(), sectionId, task.getTitle(), aid);
@@ -303,10 +311,20 @@ public class BilibiliSubmissionServiceImpl implements BilibiliSubmissionService 
                     task.getTaskId(), task.getCollectionId(), aid);
                 return true;
             } else {
-                log.error("视频关联合集失败，任务ID: {}, 合集ID: {}, 视频AID: {}, 错误信息: {}", 
-                    task.getTaskId(), task.getCollectionId(), aid, result.toJSONString());
+                // 检查是否是season_id不存在的错误
+                if (result.getIntValue("code") == -404) {
+                    log.error("视频关联合集失败，合集ID不存在或已被删除，任务ID: {}, 合集ID: {}, 视频AID: {}, 错误信息: {}", 
+                        task.getTaskId(), task.getCollectionId(), aid, result.toJSONString());
+                } else {
+                    log.error("视频关联合集失败，任务ID: {}, 合集ID: {}, 视频AID: {}, 错误信息: {}", 
+                        task.getTaskId(), task.getCollectionId(), aid, result.toJSONString());
+                }
                 return false;
             }
+        } catch (RuntimeException re) {
+            // 捕获RuntimeException并记录详细错误信息
+            log.error("关联合集时发生运行时异常，任务ID: {}, 合集ID: {}", task.getTaskId(), task.getCollectionId(), re);
+            return false;
         } catch (Exception e) {
             log.error("关联合集时发生异常，任务ID: {}, 合集ID: {}", task.getTaskId(), task.getCollectionId(), e);
             return false;
@@ -330,7 +348,7 @@ public class BilibiliSubmissionServiceImpl implements BilibiliSubmissionService 
             for (int i = 0; i < segments.size(); i++) {
                 TaskOutputSegment segment = segments.get(i);
                 JSONObject episode = new JSONObject();
-                episode.put("title", "P" + (i + 1));
+                episode.put("title", segment.getPartName());
                 episode.put("cid", segment.getCid());
                 episode.put("aid", aid);
                 episodes.add(episode);

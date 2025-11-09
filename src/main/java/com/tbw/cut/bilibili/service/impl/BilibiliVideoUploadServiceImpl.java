@@ -393,7 +393,37 @@ public class BilibiliVideoUploadServiceImpl implements BilibiliVideoUploadServic
                 
                 // 发送请求
                 String response = callAssociateWithSeasonApi(fullUrl, requestData.toJSONString());
-                return JSONObject.parseObject(response);
+                JSONObject result = JSONObject.parseObject(response);
+                
+                // 检查响应结果，如果season_id不存在则记录详细错误信息
+                if (result.getIntValue("code") == -404) {
+                    log.error("关联合集失败，season_id不存在或已被删除，season_id: {}, aid: {}", seasonId, aid);
+                    // 对于-404错误，不需要重试，直接抛出异常
+                    throw new RuntimeException("关联合集失败，指定的合集不存在或已被删除");
+                }
+                
+                return result;
+            } catch (RuntimeException re) {
+                // 对于RuntimeException（如-404错误），直接抛出，不进行重试
+                if (re.getMessage().contains("关联合集失败，指定的合集不存在或已被删除")) {
+                    throw re;
+                }
+                // 其他RuntimeException继续重试逻辑
+                retryCount++;
+                log.error("关联视频到合集失败，第{}次尝试: {}", retryCount, re.getMessage(), re);
+                
+                if (retryCount < maxRetries) {
+                    // 等待2^retryCount秒再重试（指数退避）
+                    try {
+                        Thread.sleep((long) Math.pow(2, retryCount) * 1000);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("线程中断", ie);
+                    }
+                } else {
+                    // 达到最大重试次数，抛出异常
+                    throw new RuntimeException("关联视频到合集失败，已达到最大重试次数: " + re.getMessage(), re);
+                }
             } catch (Exception e) {
                 retryCount++;
                 log.error("关联视频到合集失败，第{}次尝试: {}", retryCount, e.getMessage(), e);

@@ -52,7 +52,8 @@ public class BilibiliCollectionAndPartitionServiceImpl implements BilibiliCollec
                         for (int i = 0; i < seasons.size(); i++) {
                             JSONObject item = seasons.getJSONObject(i);
                             BilibiliCollectionDTO collection = new BilibiliCollectionDTO();
-                            collection.setSeasonId(item.getJSONObject("season").getLong("id"));
+                            collection.setSelectionId(item.getJSONObject("season").getLong("id"));
+                            collection.setSeasonId(item.getJSONObject("season").getLong("seasonId"));
                             collection.setName(item.getJSONObject("season").getString("title"));
                             collection.setCover(item.getJSONObject("season").getString("cover"));
                             collection.setDescription(item.getJSONObject("season").getString("desc"));
