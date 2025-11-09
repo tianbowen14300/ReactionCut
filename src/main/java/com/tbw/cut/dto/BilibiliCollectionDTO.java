@@ -6,7 +6,6 @@ import java.util.List;
 @Data
 public class BilibiliCollectionDTO {
     private Long seasonId;
-    private Long selectionId;
     private String name;
     private String cover;
     private String description;

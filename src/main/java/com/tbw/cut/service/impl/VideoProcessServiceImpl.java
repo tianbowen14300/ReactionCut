@@ -13,6 +13,7 @@ import com.tbw.cut.mapper.TaskOutputSegmentMapper;
 import com.tbw.cut.mapper.VideoClipMapper;
 import com.tbw.cut.service.VideoProcessService;
 import com.tbw.cut.utils.FFmpegUtil;
+import com.tbw.cut.utils.FileUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -122,7 +123,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             return null;
         }
     }
-    
+
     /**
      * 执行视频合并操作
      */
@@ -132,18 +133,18 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                 log.warn("没有视频需要合并，任务ID: {}", taskId);
                 return null;
             }
-            
+
             // 创建合并目录
             String workDir = getWorkDirectory(taskId);
             String outputPath = workDir + File.separator + "merged_video.mp4";
-            
+
             // 如果只有一个剪辑文件，直接复制
             if (clipPaths.size() == 1) {
                 Files.copy(Paths.get(clipPaths.get(0)), Paths.get(outputPath));
                 log.info("只有一个剪辑文件，直接复制完成，任务ID: {}", taskId);
                 return outputPath;
             }
-            
+
             // 创建临时的concat文件
             String concatFilePath = workDir + File.separator + "file_list.txt";
             try (FileWriter writer = new FileWriter(concatFilePath)) {
@@ -151,7 +152,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                     writer.write("file '" + clipPath + "'\n");
                 }
             }
-            
+
             // 构建FFmpeg命令：合并视频
             // 使用重新编码而不是流复制，以确保生成的视频文件符合B站要求
             List<String> command = new ArrayList<>();
@@ -161,41 +162,45 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             command.add("-safe");
             command.add("0");
             command.add("-i");
-            command.add("\"" + concatFilePath + "\""); // 添加引号以处理特殊字符
+            command.add("\"" + concatFilePath + "\""); // 输入文件列表 (file_list.txt)
+
+            // --- 在这里插入固定帧率参数 ---
+            command.add("-r");
+            command.add("60"); // 强制输出帧率为 60 FPS
             command.add("-c:v");
-            command.add("libx264"); // 使用H.264编码
+            command.add("libx264"); // 使用 H.264 编码 (需要重新编码才能应用 -r 60)
             command.add("-c:a");
-            command.add("aac"); // 使用AAC音频编码
+            command.add("aac"); // 使用 AAC 音频编码
             command.add("-strict");
-            command.add("experimental");
+            command.add("experimental"); // 兼容旧版 AAC 编码器
             command.add("-y");
-            command.add("\"" + outputPath + "\""); // 添加引号以处理特殊字符
-            
+            command.add("\"" + outputPath + "\""); // 输出文件路径
+
             log.info("执行FFmpeg合并命令: {}", String.join(" ", command));
-            
+
             // 使用Shell执行命令以正确处理引号
             ProcessBuilder builder = new ProcessBuilder("/bin/sh", "-c", String.join(" ", command));
             Process process = builder.start();
-            
+
             // 读取输出
             readProcessOutput(process);
-            
+
             boolean finished = process.waitFor(30, TimeUnit.MINUTES);
             if (!finished) {
                 process.destroyForcibly();
                 log.error("FFmpeg合并超时，任务ID: {}", taskId);
                 return null;
             }
-            
+
             int exitCode = process.exitValue();
             if (exitCode != 0) {
                 log.error("FFmpeg合并失败，退出码: {}, 任务ID: {}", exitCode, taskId);
                 return null;
             }
-            
+
             // 删除临时的concat文件
             new File(concatFilePath).delete();
-            
+
             log.info("视频合并完成，任务ID: {}, 输出路径: {}", taskId, outputPath);
             return outputPath;
         } catch (Exception e) {
@@ -220,59 +225,56 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             return Collections.emptyList();
         }
     }
-    
-    /**
-     * 执行视频分段操作
-     */
+
     private List<String> performSegmentVideo(String taskId, String mergedVideoPath) {
         try {
             if (mergedVideoPath == null || !new File(mergedVideoPath).exists()) {
                 log.warn("合并视频文件不存在，任务ID: {}", taskId);
                 return Collections.emptyList();
             }
-            
+
             // 获取任务信息，包括分段前缀
             SubmissionTask task = getTaskDetail(taskId);
             String segmentPrefix = task.getSegmentPrefix();
-            
+
             // 创建输出目录
             String workDir = getWorkDirectory(taskId);
             String outputDir = workDir + File.separator + "output";
             new File(outputDir).mkdirs();
-            
+
             // 获取视频时长
             double videoDuration = getVideoDuration(mergedVideoPath);
             if (videoDuration <= 0) {
                 log.error("无法获取视频时长，任务ID: {}", taskId);
                 return Collections.emptyList();
             }
-            
+
             log.info("视频时长: {} 秒，任务ID: {}", videoDuration, taskId);
-            
+
             // 计算分段数 (每段133秒，即2分13秒)
             int segmentDuration = 133;
             int segmentCount = (int) Math.ceil(videoDuration / segmentDuration);
-            
+
             log.info("分段数: {}, 每段时长: {}秒，任务ID: {}", segmentCount, segmentDuration, taskId);
-            
+
             List<String> segmentPaths = new ArrayList<>();
-            
+
             // 循环切割每一段
             for (int i = 0; i < segmentCount; i++) {
                 int currentStart = i * segmentDuration;
-                
+
                 // 检查是否超过视频总时长
                 if (currentStart >= videoDuration) {
                     log.info("已达到视频末尾，停止切割，任务ID: {}", taskId);
                     break;
                 }
-                
+
                 // 格式化开始时间 (HH:MM:SS)
                 String startTime = formatTime(currentStart);
-                
+
                 // 格式化文件编号 (001, 002, ...)
                 String fileNum = String.format("%03d", i + 1);
-                
+
                 // 构建分段文件名，使用分段前缀（如果有的话）
                 String fileName;
                 if (segmentPrefix != null && !segmentPrefix.isEmpty()) {
@@ -280,11 +282,11 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                 } else {
                     fileName = "part_" + fileNum + ".mp4";
                 }
-                
+
                 String segmentPath = outputDir + File.separator + fileName;
-                
+
                 log.info("[{}/{}] 时间: {} → {}, 任务ID: {}", i + 1, segmentCount, startTime, segmentPath, taskId);
-                
+
                 // 构建FFmpeg命令：切割视频
                 // 使用重新编码而不是流复制，以确保生成的视频文件符合B站要求
                 List<String> command = new ArrayList<>();
@@ -295,31 +297,27 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                 command.add("\"" + mergedVideoPath + "\""); // 添加引号以处理特殊字符
                 command.add("-t");
                 command.add("00:02:13"); // 2分13秒
-                command.add("-c:v");
-                command.add("libx264"); // 使用H.264编码
-                command.add("-c:a");
-                command.add("aac"); // 使用AAC音频编码
-                command.add("-strict");
-                command.add("experimental");
+                command.add("-c");
+                command.add("copy"); // 使用H.264编码
                 command.add("-y");
                 command.add("\"" + segmentPath + "\""); // 添加引号以处理特殊字符
-                
+
                 log.debug("执行FFmpeg切割命令: {}", String.join(" ", command));
-                
+
                 // 使用Shell执行命令以正确处理引号
                 ProcessBuilder builder = new ProcessBuilder("/bin/sh", "-c", String.join(" ", command));
                 Process process = builder.start();
-                
+
                 // 读取输出
                 readProcessOutput(process);
-                
+
                 boolean finished = process.waitFor(10, TimeUnit.MINUTES);
                 if (!finished) {
                     process.destroyForcibly();
                     log.error("FFmpeg切割超时，任务ID: {}, 分段: {}", taskId, i + 1);
                     continue;
                 }
-                
+
                 int exitCode = process.exitValue();
                 if (exitCode == 0) {
                     // 检查实际生成的文件
@@ -333,9 +331,9 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                         String baseName = fileName.substring(0, fileName.lastIndexOf('.'));
                         String extension = fileName.substring(fileName.lastIndexOf('.'));
                         File outputDirFile = new File(outputDir);
-                        File[] files = outputDirFile.listFiles((dir, name) -> 
-                            name.startsWith(baseName) && name.endsWith(extension));
-                        
+                        File[] files = outputDirFile.listFiles((dir, name) ->
+                                name.startsWith(baseName) && name.endsWith(extension));
+
                         if (files != null && files.length > 0) {
                             // 选择最新的文件（按修改时间排序）
                             Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
@@ -350,7 +348,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                     log.error("✗ 创建分段失败，任务ID: {}, 分段: {}, 退出码: {}", taskId, i + 1, exitCode);
                 }
             }
-            
+
             log.info("视频分段完成，任务ID: {}, 分段文件数量: {}", taskId, segmentPaths.size());
             return segmentPaths;
         } catch (Exception e) {
@@ -358,6 +356,144 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             return Collections.emptyList();
         }
     }
+    
+    /**
+     * 执行视频分段操作
+     */
+//    private List<String> performSegmentVideo(String taskId, String mergedVideoPath) {
+//        try {
+//            if (mergedVideoPath == null || !new File(mergedVideoPath).exists()) {
+//                log.warn("合并视频文件不存在，任务ID: {}", taskId);
+//                return Collections.emptyList();
+//            }
+//
+//            // 获取任务信息，包括分段前缀
+//            SubmissionTask task = getTaskDetail(taskId);
+//            String segmentPrefix = task.getSegmentPrefix();
+//
+//            // 创建输出目录
+//            String workDir = getWorkDirectory(taskId);
+//            String outputDir = workDir + File.separator + "output";
+//            new File(outputDir).mkdirs();
+//
+//            // 获取视频时长
+//            double videoDuration = getVideoDuration(mergedVideoPath);
+//            if (videoDuration <= 0) {
+//                log.error("无法获取视频时长，任务ID: {}", taskId);
+//                return Collections.emptyList();
+//            }
+//
+//            log.info("视频时长: {} 秒，任务ID: {}", videoDuration, taskId);
+//
+//            // 计算分段数 (每段133秒，即2分13秒)
+//            int segmentDuration = 133;
+//            int segmentCount = (int) Math.ceil(videoDuration / segmentDuration);
+//
+//            log.info("分段数: {}, 每段时长: {}秒，任务ID: {}", segmentCount, segmentDuration, taskId);
+//
+//            List<String> segmentPaths = new ArrayList<>();
+//
+//            // 循环切割每一段
+//            for (int i = 0; i < segmentCount; i++) {
+//                int currentStart = i * segmentDuration;
+//
+//                // 检查是否超过视频总时长
+//                if (currentStart >= videoDuration) {
+//                    log.info("已达到视频末尾，停止切割，任务ID: {}", taskId);
+//                    break;
+//                }
+//
+//                // 格式化开始时间 (HH:MM:SS)
+//                String startTime = formatTime(currentStart);
+//
+//                // 格式化文件编号 (001, 002, ...)
+//                String fileNum = String.format("%03d", i + 1);
+//
+//                // 构建分段文件名，使用分段前缀（如果有的话）
+//                String fileName;
+//                if (segmentPrefix != null && !segmentPrefix.isEmpty()) {
+//                    fileName = segmentPrefix + "_part_" + fileNum + ".mp4";
+//                } else {
+//                    fileName = "part_" + fileNum + ".mp4";
+//                }
+//
+//                String segmentPath = outputDir + File.separator + fileName;
+//
+//                log.info("[{}/{}] 时间: {} → {}, 任务ID: {}", i + 1, segmentCount, startTime, segmentPath, taskId);
+//
+//                // 构建FFmpeg命令：切割视频
+//                // 使用重新编码而不是流复制，以确保生成的视频文件符合B站要求
+//                List<String> command = new ArrayList<>();
+//                command.add(ffmpegPath);
+//                command.add("-ss");
+//                command.add(startTime);
+//                command.add("-i");
+//                command.add("\"" + mergedVideoPath + "\""); // 添加引号以处理特殊字符
+//                command.add("-t");
+//                command.add("00:02:13"); // 2分13秒
+//                command.add("-c:v");
+//                command.add("libx264"); // 使用H.264编码
+//                command.add("-c:a");
+//                command.add("aac"); // 使用AAC音频编码
+//                command.add("-strict");
+//                command.add("experimental");
+//                command.add("-y");
+//                command.add("\"" + segmentPath + "\""); // 添加引号以处理特殊字符
+//
+//                log.debug("执行FFmpeg切割命令: {}", String.join(" ", command));
+//
+//                // 使用Shell执行命令以正确处理引号
+//                ProcessBuilder builder = new ProcessBuilder("/bin/sh", "-c", String.join(" ", command));
+//                Process process = builder.start();
+//
+//                // 读取输出
+//                readProcessOutput(process);
+//
+//                boolean finished = process.waitFor(10, TimeUnit.MINUTES);
+//                if (!finished) {
+//                    process.destroyForcibly();
+//                    log.error("FFmpeg切割超时，任务ID: {}, 分段: {}", taskId, i + 1);
+//                    continue;
+//                }
+//
+//                int exitCode = process.exitValue();
+//                if (exitCode == 0) {
+//                    // 检查实际生成的文件
+//                    File generatedFile = new File(segmentPath);
+//                    if (generatedFile.exists()) {
+//                        segmentPaths.add(segmentPath);
+//                        log.info("✓ 成功创建分段: {}, 任务ID: {}", segmentPath, taskId);
+//                    } else {
+//                        // 如果文件不存在，尝试查找实际生成的文件
+//                        // FFmpeg可能会根据文件名模式生成不同的文件名
+//                        String baseName = fileName.substring(0, fileName.lastIndexOf('.'));
+//                        String extension = fileName.substring(fileName.lastIndexOf('.'));
+//                        File outputDirFile = new File(outputDir);
+//                        File[] files = outputDirFile.listFiles((dir, name) ->
+//                            name.startsWith(baseName) && name.endsWith(extension));
+//
+//                        if (files != null && files.length > 0) {
+//                            // 选择最新的文件（按修改时间排序）
+//                            Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
+//                            String actualPath = files[0].getAbsolutePath();
+//                            segmentPaths.add(actualPath);
+//                            log.info("✓ 成功创建分段: {}, 任务ID: {}", actualPath, taskId);
+//                        } else {
+//                            log.warn("未能找到生成的分段文件，预期路径: {}, 任务ID: {}", segmentPath, taskId);
+//                        }
+//                    }
+//                } else {
+//                    log.error("✗ 创建分段失败，任务ID: {}, 分段: {}, 退出码: {}", taskId, i + 1, exitCode);
+//                }
+//            }
+//
+//            log.info("视频分段完成，任务ID: {}, 分段文件数量: {}", taskId, segmentPaths.size());
+//            return segmentPaths;
+//        } catch (Exception e) {
+//            log.error("视频分段时发生异常，任务ID: {}", taskId, e);
+//            return Collections.emptyList();
+//        }
+//    }
     
     @Override
     public SubmissionTask getTaskDetail(String taskId) {
@@ -378,7 +514,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                 TaskOutputSegment segment = new TaskOutputSegment();
                 segment.setSegmentId(UUID.randomUUID().toString());
                 segment.setTaskId(taskId);
-                segment.setPartName("P" + (i + 1));
+                segment.setPartName(FileUtils.getBaseName(segmentPaths.get(i)));
                 segment.setSegmentFilePath(segmentPaths.get(i));
                 segment.setPartOrder(i + 1);
                 segment.setUploadStatus(TaskOutputSegment.UploadStatus.PENDING);
@@ -426,9 +562,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             return Collections.emptyList();
         }
     }
-    
 
-    
     /**
      * 剪辑单个视频
      */
@@ -437,60 +571,50 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             String inputPath = sourceVideo.getSourceFilePath();
             String startTime = sourceVideo.getStartTime();
             String endTime = sourceVideo.getEndTime();
-            
+
             // 构建输出路径
             String fileName = new File(inputPath).getName();
             String outputFileName = "clip_" + index + "_" + fileName;
             String outputPath = clipsDir + File.separator + outputFileName;
-            
             // 构建FFmpeg命令：剪辑视频
             // 使用重新编码而不是流复制，以确保生成的视频文件符合B站要求
             List<String> command = new ArrayList<>();
             command.add(ffmpegPath);
-            command.add("-i");
-            command.add("\"" + inputPath + "\""); // 添加引号以处理特殊字符
-            
+
             if (startTime != null && !startTime.isEmpty() && !startTime.equals("00:00:00")) {
                 command.add("-ss");
                 command.add(startTime);
             }
-            
+            command.add("-i");
+            command.add("\"" + inputPath + "\""); // 添加引号以处理特殊字符
             if (endTime != null && !endTime.isEmpty() && !endTime.equals("00:00:00")) {
                 command.add("-to");
                 command.add(endTime);
             }
-            
-            command.add("-c:v");
-            command.add("libx264"); // 使用H.264编码
-            command.add("-c:a");
-            command.add("aac"); // 使用AAC音频编码
-            command.add("-strict");
-            command.add("experimental");
-            command.add("-y");
+            command.add("-c copy -y");
             command.add("\"" + outputPath + "\""); // 添加引号以处理特殊字符
-            
             log.info("执行FFmpeg剪辑命令: {}", String.join(" ", command));
-            
+
             // 使用Shell执行命令以正确处理引号
             ProcessBuilder builder = new ProcessBuilder("/bin/sh", "-c", String.join(" ", command));
             Process process = builder.start();
-            
+
             // 读取输出
             readProcessOutput(process);
-            
+
             boolean finished = process.waitFor(10, TimeUnit.MINUTES);
             if (!finished) {
                 process.destroyForcibly();
                 log.error("FFmpeg剪辑超时，视频索引: {}", index);
                 return null;
             }
-            
+
             int exitCode = process.exitValue();
             if (exitCode != 0) {
                 log.error("FFmpeg剪辑失败，退出码: {}, 视频索引: {}", exitCode, index);
                 return null;
             }
-            
+
             log.info("视频剪辑完成，视频索引: {}, 输出路径: {}", index, outputPath);
             return outputPath;
         } catch (Exception e) {
@@ -498,6 +622,77 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             return null;
         }
     }
+
+
+
+    /**
+     * 剪辑单个视频
+     */
+//    private String clipVideo(TaskSourceVideo sourceVideo, String clipsDir, int index) {
+//        try {
+//            String inputPath = sourceVideo.getSourceFilePath();
+//            String startTime = sourceVideo.getStartTime();
+//            String endTime = sourceVideo.getEndTime();
+//
+//            // 构建输出路径
+//            String fileName = new File(inputPath).getName();
+//            String outputFileName = "clip_" + index + "_" + fileName;
+//            String outputPath = clipsDir + File.separator + outputFileName;
+//            // 构建FFmpeg命令：剪辑视频
+//            // 使用重新编码而不是流复制，以确保生成的视频文件符合B站要求
+//            List<String> command = new ArrayList<>();
+//            command.add(ffmpegPath);
+//            command.add("-i");
+//            command.add("\"" + inputPath + "\""); // 添加引号以处理特殊字符
+//
+//            if (startTime != null && !startTime.isEmpty() && !startTime.equals("00:00:00")) {
+//                command.add("-ss");
+//                command.add(startTime);
+//            }
+//
+//            if (endTime != null && !endTime.isEmpty() && !endTime.equals("00:00:00")) {
+//                command.add("-to");
+//                command.add(endTime);
+//            }
+//
+//            command.add("-c:v");
+//            command.add("libx264"); // 使用H.264编码
+//            command.add("-c:a");
+//            command.add("aac"); // 使用AAC音频编码
+//            command.add("-strict");
+//            command.add("experimental");
+//            command.add("-y");
+//            command.add("\"" + outputPath + "\""); // 添加引号以处理特殊字符
+//
+//            log.info("执行FFmpeg剪辑命令: {}", String.join(" ", command));
+//
+//            // 使用Shell执行命令以正确处理引号
+//            ProcessBuilder builder = new ProcessBuilder("/bin/sh", "-c", String.join(" ", command));
+//            Process process = builder.start();
+//
+//            // 读取输出
+//            readProcessOutput(process);
+//
+//            boolean finished = process.waitFor(10, TimeUnit.MINUTES);
+//            if (!finished) {
+//                process.destroyForcibly();
+//                log.error("FFmpeg剪辑超时，视频索引: {}", index);
+//                return null;
+//            }
+//
+//            int exitCode = process.exitValue();
+//            if (exitCode != 0) {
+//                log.error("FFmpeg剪辑失败，退出码: {}, 视频索引: {}", exitCode, index);
+//                return null;
+//            }
+//
+//            log.info("视频剪辑完成，视频索引: {}, 输出路径: {}", index, outputPath);
+//            return outputPath;
+//        } catch (Exception e) {
+//            log.error("视频剪辑时发生异常，视频索引: {}", index, e);
+//            return null;
+//        }
+//    }
     
     /**
      * 获取视频时长
@@ -579,7 +774,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             String taskDir = baseDir + File.separator + "video_task_" + taskId;
             
             // 确保目录路径中的特殊字符被正确处理
-            taskDir = taskDir.replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)");
+//            taskDir = taskDir.replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)");
             
             File dir = new File(taskDir);
             if (!dir.exists()) {
@@ -626,7 +821,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
                 if (taskDirs != null && taskDirs.length > 0) {
                     String taskDir = taskDirs[0].getAbsolutePath();
                     // 确保目录路径中的特殊字符被正确处理
-                    return taskDir.replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)");
+                    return taskDir;
                 }
             }
             

@@ -9,6 +9,8 @@ import com.tbw.cut.service.SubmissionTaskService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.util.ObjectUtils;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -251,22 +253,12 @@ public class BilibiliSubmissionServiceImpl implements BilibiliSubmissionService 
                 
                 // 如果任务配置了合集ID，则关联合集
                 if (task.getCollectionId() != null && task.getCollectionId() > 0) {
-                    log.info("任务配置了合集ID，开始关联合集，任务ID: {}", task.getTaskId());
-                    boolean seasonAssociated = associateWithSeason(task, aid);
-                    if (seasonAssociated) {
-                        log.info("视频关联合集成功，任务ID: {}", task.getTaskId());
-                        
-                        // 将视频添加到合集章节
-                        boolean episodesAdded = addEpisodesToSection(task, aid, segments);
-                        if (episodesAdded) {
-                            log.info("视频添加到合集章节成功，任务ID: {}", task.getTaskId());
-                        } else {
-                            log.error("视频添加到合集章节失败，任务ID: {}", task.getTaskId());
-                        }
+                    // 将视频添加到合集章节
+                    boolean episodesAdded = addEpisodesToSection(task, aid, segments);
+                    if (episodesAdded) {
+                        log.info("视频添加到合集章节成功，任务ID: {}", task.getTaskId());
                     } else {
-                        log.error("视频关联合集失败，任务ID: {}，将继续处理其他任务", task.getTaskId());
-                        // 即使关联合集失败，也继续完成任务，不中断整个投稿流程
-                        // 这样可以确保视频能够成功投稿，只是没有关联合集
+                        log.error("视频添加到合集章节失败，任务ID: {}", task.getTaskId());
                     }
                 }
                 
@@ -353,17 +345,15 @@ public class BilibiliSubmissionServiceImpl implements BilibiliSubmissionService 
                 episode.put("aid", aid);
                 episodes.add(episode);
             }
-            
             // 调用B站API将视频添加到章节
-            JSONObject result = videoUploadService.addEpisodesToSection(0L, episodes);
-            
+            JSONObject result = videoUploadService.addEpisodesToSection(task.getCollectionId(), episodes);
             if (result.getIntValue("code") == 0) {
-                log.info("视频添加到合集章节成功，任务ID: {}, 合集ID: {}, 视频AID: {}", 
-                    task.getTaskId(), task.getCollectionId(), aid);
+                log.info("视频添加到合集章节成功，任务ID: {}, 合集ID: {}, 视频AID: {}",
+                        task.getTaskId(), task.getCollectionId(), aid);
                 return true;
             } else {
-                log.error("视频添加到合集章节失败，任务ID: {}, 合集ID: {}, 视频AID: {}, 错误信息: {}", 
-                    task.getTaskId(), task.getCollectionId(), aid, result.toJSONString());
+                log.error("视频添加到合集章节失败，任务ID: {}, 合集ID: {}, 视频AID: {}, 错误信息: {}",
+                        task.getTaskId(), task.getCollectionId(), aid, result.toJSONString());
                 return false;
             }
         } catch (Exception e) {

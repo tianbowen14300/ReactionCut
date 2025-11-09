@@ -47,6 +47,7 @@ public class BilibiliVideoUploadServiceImpl implements BilibiliVideoUploadServic
                 params.add("name=" + URLEncoder.encode(fileName, "UTF-8"));
                 params.add("r=upos");
                 params.add("profile=ugcfx/bup");
+                params.add("version=2.14.0.0");
                 params.add("size=" + fileSize);
                 
                 String fullUrl = url + "?" + params.toString();
