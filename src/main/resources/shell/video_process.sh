@@ -48,6 +48,39 @@ while IFS='=' read -r key value; do
 done < "$TEMP_PATHS"
 rm -f "$TEMP_PATHS"
 
+# 时间计算函数：将 HH:MM:SS 转换为秒数
+time_to_seconds() {
+    local time_str=$1
+    IFS=':' read -r hours minutes seconds <<< "$time_str"
+    echo $((hours * 3600 + minutes * 60 + seconds))
+}
+
+# 时间计算函数：将秒数转换为 HH:MM:SS 格式
+seconds_to_time() {
+    local total_seconds=$1
+    local hours=$((total_seconds / 3600))
+    local minutes=$(((total_seconds % 3600) / 60))
+    local seconds=$((total_seconds % 60))
+    printf "%02d:%02d:%02d" $hours $minutes $seconds
+}
+
+# 计算时长函数
+calculate_duration() {
+    local start_time=$1
+    local end_time=$2
+    
+    local start_seconds=$(time_to_seconds "$start_time")
+    local end_seconds=$(time_to_seconds "$end_time")
+    
+    if [ $end_seconds -le $start_seconds ]; then
+        echo "ERROR: End time must be after start time" >&2
+        return 1
+    fi
+    
+    local duration_seconds=$((end_seconds - start_seconds))
+    seconds_to_time $duration_seconds
+}
+
 # 显示读取到的配置
 echo "Parsed configuration:"
 echo "INPUT_DIR=[$INPUT_DIR]"

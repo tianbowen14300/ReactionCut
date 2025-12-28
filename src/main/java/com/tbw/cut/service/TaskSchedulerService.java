@@ -19,7 +19,7 @@ public class TaskSchedulerService {
     /**
      * 定时扫描PENDING状态的任务并执行
      */
-    @Scheduled(fixedDelay = 5000) // 每30秒执行一次
+//    @Scheduled(fixedDelay = 5000) // 每30秒执行一次
     public void schedulePendingTasks() {
         taskExecutorService.executePendingTasks();
     }

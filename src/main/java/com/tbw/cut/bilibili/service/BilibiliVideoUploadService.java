@@ -77,4 +77,33 @@ public interface BilibiliVideoUploadService {
      * @return 添加结果
      */
     JSONObject addEpisodesToSection(Long sectionId, List<JSONObject> episodes);
+    
+    /**
+     * 获取合集信息
+     * @param seasonId 合集ID
+     * @return 合集信息，包含章节列表
+     */
+    JSONObject getSeasonInfo(Long seasonId);
+    
+    /**
+     * 从BVID获取AID
+     * @param bvid 视频BVID
+     * @return 视频AID
+     */
+    Long getAidFromBvid(String bvid);
+    
+    /**
+     * 编辑现有视频（用于批量投稿添加分P）
+     * @param aid 视频AID
+     * @param editData 完整的视频数据，包含现有和新增的分P
+     * @return 编辑结果
+     */
+    JSONObject editVideo(Long aid, JSONObject editData);
+    
+    /**
+     * 获取视频信息，包含现有分P列表
+     * @param aid 视频AID
+     * @return 视频信息，包含分P列表
+     */
+    JSONObject getVideoInfo(Long aid);
 }

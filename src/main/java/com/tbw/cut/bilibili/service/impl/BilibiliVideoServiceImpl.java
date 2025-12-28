@@ -91,7 +91,7 @@ public class BilibiliVideoServiceImpl implements BilibiliVideoService {
             
             // 设置默认参数
             params.put("qn", qn != null ? qn : "112"); // 默认1080P+
-            params.put("fnval", fnval != null ? fnval : "4048"); // 默认支持所有DASH格式
+            params.put("fnval", fnval != null ? fnval : "1"); // 默认MP4格式，包含音频
             params.put("fnver", fnver != null ? fnver : "0");
             params.put("fourk", fourk != null ? fourk : "1");
             
@@ -124,7 +124,7 @@ public class BilibiliVideoServiceImpl implements BilibiliVideoService {
             
             // 设置默认参数
             params.put("qn", qn != null ? qn : "112"); // 默认1080P+
-            params.put("fnval", fnval != null ? fnval : "4048"); // 默认支持所有DASH格式
+            params.put("fnval", fnval != null ? fnval : "1"); // 默认MP4格式，包含音频
             params.put("fnver", fnver != null ? fnver : "0");
             params.put("fourk", fourk != null ? fourk : "1");
             

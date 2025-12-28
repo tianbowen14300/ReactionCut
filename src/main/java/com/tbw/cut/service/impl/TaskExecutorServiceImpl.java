@@ -160,6 +160,25 @@ public class TaskExecutorServiceImpl implements TaskExecutorService {
                 return;
             }
 
+            // 重新获取分段信息以获取上传后的CID
+            segments = submissionTaskService.getOutputSegmentsByTaskId(taskId);
+            log.info("重新获取分段信息，包含CID，任务ID: {}, 分段数量: {}", taskId, segments.size());
+            
+            // 验证所有分段都有CID
+            boolean allSegmentsHaveCid = true;
+            for (TaskOutputSegment segment : segments) {
+                if (segment.getCid() == null) {
+                    log.error("分段缺少CID，分段ID: {}, 文件路径: {}", segment.getSegmentId(), segment.getSegmentFilePath());
+                    allSegmentsHaveCid = false;
+                }
+            }
+            
+            if (!allSegmentsHaveCid) {
+                log.error("部分分段缺少CID，无法提交视频，任务ID: {}", taskId);
+                submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
+                return;
+            }
+
             // 8. 提交视频到B站
             String bvid = bilibiliSubmissionService.submitVideo(task, segments);
             if (bvid == null) {

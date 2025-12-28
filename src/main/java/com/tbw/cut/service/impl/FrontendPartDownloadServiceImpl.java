@@ -314,12 +314,25 @@ public class FrontendPartDownloadServiceImpl implements FrontendPartDownloadServ
             if (contentObj != null) {
                 String content = contentObj.toString();
                 if ("audio_only".equals(content)) {
-                    // 只下载音频，设置fnval为音频格式
-                    bilibiliParams.put("fnval", "0"); // 这里可能需要调整，根据实际需求
-                    log.info("设置音频-only模式，fnval=0");
+                    // 只下载音频，使用支持音频的格式
+                    bilibiliParams.put("fnval", "30280"); // DASH格式，支持音频流
+                    bilibiliParams.put("audio_only", "true");
+                    log.info("设置音频-only模式，fnval=30280");
+                } else if ("video_only".equals(content)) {
+                    // 只下载视频（无音频）
+                    bilibiliParams.put("fnval", "16"); // DASH视频流，无音频
+                    log.info("设置视频-only模式，fnval=16");
+                } else {
+                    // 默认：视频+音频，使用MP4格式
+                    bilibiliParams.put("fnval", "1"); // MP4格式，包含音频
+                    log.info("设置视频+音频模式，fnval=1");
                 }
                 log.info("设置内容类型 content={}", content);
             }
+        } else {
+            // 默认获取包含音频的视频流
+            bilibiliParams.put("fnval", "1"); // MP4格式，包含音频
+            log.info("使用默认模式（包含音频），fnval=1");
         }
         
         // 设置默认值
@@ -399,7 +412,27 @@ public class FrontendPartDownloadServiceImpl implements FrontendPartDownloadServ
             
             // 从播放信息中提取实际的视频URL
             if (playInfo != null) {
-                // 优先尝试DASH格式
+                // 优先尝试包含音频的durl格式（MP4/FLV）
+                if (playInfo.containsKey("durl")) {
+                    com.alibaba.fastjson.JSONArray durls = playInfo.getJSONArray("durl");
+                    if (durls != null && durls.size() > 0) {
+                        // 打印所有可用的视频流信息
+                        log.info("可用的MP4/FLV视频流数量: {}", durls.size());
+                        for (int i = 0; i < durls.size(); i++) {
+                            com.alibaba.fastjson.JSONObject durl = durls.getJSONObject(i);
+                            log.info("视频流 {}: url={}", i, durl.getString("url"));
+                        }
+                        
+                        com.alibaba.fastjson.JSONObject firstDurl = durls.getJSONObject(0);
+                        if (firstDurl.containsKey("url")) {
+                            String url = firstDurl.getString("url");
+                            log.info("获取到包含音频的MP4/FLV视频流URL: {}", url);
+                            return url;
+                        }
+                    }
+                }
+                
+                // 如果没有durl，再尝试DASH格式
                 if (playInfo.containsKey("dash")) {
                     com.alibaba.fastjson.JSONObject dash = playInfo.getJSONObject("dash");
                     if (dash != null && dash.containsKey("video")) {
@@ -486,26 +519,6 @@ public class FrontendPartDownloadServiceImpl implements FrontendPartDownloadServ
                                 log.info("获取到DASH视频流URL (base_url): {}", baseUrl);
                                 return baseUrl;
                             }
-                        }
-                    }
-                }
-                
-                // 如果没有DASH，尝试durl格式
-                if (playInfo.containsKey("durl")) {
-                    com.alibaba.fastjson.JSONArray durls = playInfo.getJSONArray("durl");
-                    if (durls != null && durls.size() > 0) {
-                        // 打印所有可用的视频流信息
-                        log.info("可用的MP4/FLV视频流数量: {}", durls.size());
-                        for (int i = 0; i < durls.size(); i++) {
-                            com.alibaba.fastjson.JSONObject durl = durls.getJSONObject(i);
-                            log.info("视频流 {}: url={}", i, durl.getString("url"));
-                        }
-                        
-                        com.alibaba.fastjson.JSONObject firstDurl = durls.getJSONObject(0);
-                        if (firstDurl.containsKey("url")) {
-                            String url = firstDurl.getString("url");
-                            log.info("获取到MP4/FLV视频流URL: {}", url);
-                            return url;
                         }
                     }
                 }

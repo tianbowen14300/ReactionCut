@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -140,7 +141,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
 
             // 如果只有一个剪辑文件，直接复制
             if (clipPaths.size() == 1) {
-                Files.copy(Paths.get(clipPaths.get(0)), Paths.get(outputPath));
+                Files.copy(Paths.get(clipPaths.get(0)), Paths.get(outputPath), StandardCopyOption.REPLACE_EXISTING);
                 log.info("只有一个剪辑文件，直接复制完成，任务ID: {}", taskId);
                 return outputPath;
             }
@@ -149,12 +150,12 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             String concatFilePath = workDir + File.separator + "file_list.txt";
             try (FileWriter writer = new FileWriter(concatFilePath)) {
                 for (String clipPath : clipPaths) {
+                    // 使用相对路径或绝对路径，确保路径正确
                     writer.write("file '" + clipPath + "'\n");
                 }
             }
 
-            // 构建FFmpeg命令：合并视频
-            // 使用重新编码而不是流复制，以确保生成的视频文件符合B站要求
+            // 构建FFmpeg命令：无损合并视频（不进行转码）
             List<String> command = new ArrayList<>();
             command.add(ffmpegPath);
             command.add("-f");
@@ -163,20 +164,14 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             command.add("0");
             command.add("-i");
             command.add("\"" + concatFilePath + "\""); // 输入文件列表 (file_list.txt)
-
-            // --- 在这里插入固定帧率参数 ---
-            command.add("-r");
-            command.add("60"); // 强制输出帧率为 60 FPS
-            command.add("-c:v");
-            command.add("libx264"); // 使用 H.264 编码 (需要重新编码才能应用 -r 60)
-            command.add("-c:a");
-            command.add("aac"); // 使用 AAC 音频编码
-            command.add("-strict");
-            command.add("experimental"); // 兼容旧版 AAC 编码器
+            
+            // 使用流复制进行无损合并，不进行重新编码
+            command.add("-c");
+            command.add("copy"); // 复制所有流，不重新编码
             command.add("-y");
             command.add("\"" + outputPath + "\""); // 输出文件路径
 
-            log.info("执行FFmpeg合并命令: {}", String.join(" ", command));
+            log.info("执行FFmpeg无损合并命令: {}", String.join(" ", command));
 
             // 使用Shell执行命令以正确处理引号
             ProcessBuilder builder = new ProcessBuilder("/bin/sh", "-c", String.join(" ", command));
@@ -195,16 +190,80 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             int exitCode = process.exitValue();
             if (exitCode != 0) {
                 log.error("FFmpeg合并失败，退出码: {}, 任务ID: {}", exitCode, taskId);
+                // 如果无损合并失败，尝试重新编码合并作为备选方案
+                log.info("尝试使用重新编码方式进行合并，任务ID: {}", taskId);
+                return performMergeVideosWithReencoding(taskId, clipPaths, concatFilePath, outputPath);
+            }
+
+            // 删除临时的concat文件
+            new File(concatFilePath).delete();
+
+            log.info("视频无损合并完成，任务ID: {}, 输出路径: {}", taskId, outputPath);
+            return outputPath;
+        } catch (Exception e) {
+            log.error("视频合并时发生异常，任务ID: {}", taskId, e);
+            return null;
+        }
+    }
+    
+    /**
+     * 使用重新编码方式进行视频合并（备选方案）
+     */
+    private String performMergeVideosWithReencoding(String taskId, List<String> clipPaths, String concatFilePath, String outputPath) {
+        try {
+            log.info("开始重新编码合并，任务ID: {}", taskId);
+            
+            // 构建FFmpeg命令：重新编码合并
+            List<String> command = new ArrayList<>();
+            command.add(ffmpegPath);
+            command.add("-f");
+            command.add("concat");
+            command.add("-safe");
+            command.add("0");
+            command.add("-i");
+            command.add("\"" + concatFilePath + "\"");
+            
+            // 重新编码参数
+            command.add("-c:v");
+            command.add("libx264"); // H.264 视频编码
+            command.add("-crf");
+            command.add("23"); // 质量参数，23是较好的质量
+            command.add("-preset");
+            command.add("medium"); // 编码速度预设
+            command.add("-c:a");
+            command.add("aac"); // AAC 音频编码
+            command.add("-b:a");
+            command.add("128k"); // 音频比特率
+            command.add("-y");
+            command.add("\"" + outputPath + "\"");
+
+            log.info("执行FFmpeg重新编码合并命令: {}", String.join(" ", command));
+
+            ProcessBuilder builder = new ProcessBuilder("/bin/sh", "-c", String.join(" ", command));
+            Process process = builder.start();
+
+            readProcessOutput(process);
+
+            boolean finished = process.waitFor(60, TimeUnit.MINUTES); // 重新编码需要更长时间
+            if (!finished) {
+                process.destroyForcibly();
+                log.error("FFmpeg重新编码合并超时，任务ID: {}", taskId);
+                return null;
+            }
+
+            int exitCode = process.exitValue();
+            if (exitCode != 0) {
+                log.error("FFmpeg重新编码合并失败，退出码: {}, 任务ID: {}", exitCode, taskId);
                 return null;
             }
 
             // 删除临时的concat文件
             new File(concatFilePath).delete();
 
-            log.info("视频合并完成，任务ID: {}, 输出路径: {}", taskId, outputPath);
+            log.info("视频重新编码合并完成，任务ID: {}, 输出路径: {}", taskId, outputPath);
             return outputPath;
         } catch (Exception e) {
-            log.error("视频合并时发生异常，任务ID: {}", taskId, e);
+            log.error("重新编码合并时发生异常，任务ID: {}", taskId, e);
             return null;
         }
     }
@@ -576,23 +635,42 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             String fileName = new File(inputPath).getName();
             String outputFileName = "clip_" + index + "_" + fileName;
             String outputPath = clipsDir + File.separator + outputFileName;
+            
+            // 计算时长以避免时间基准问题
+            String duration = null;
+            if (startTime != null && !startTime.isEmpty() && !startTime.equals("00:00:00") &&
+                endTime != null && !endTime.isEmpty() && !endTime.equals("00:00:00")) {
+                duration = calculateDuration(startTime, endTime);
+                if (duration == null) {
+                    log.error("无法计算时长，开始时间: {}, 结束时间: {}", startTime, endTime);
+                    return null;
+                }
+            }
+            
             // 构建FFmpeg命令：剪辑视频
-            // 使用重新编码而不是流复制，以确保生成的视频文件符合B站要求
             List<String> command = new ArrayList<>();
             command.add(ffmpegPath);
 
+            // 将 -ss 放在 -i 之前以实现快速定位
             if (startTime != null && !startTime.isEmpty() && !startTime.equals("00:00:00")) {
                 command.add("-ss");
                 command.add(startTime);
             }
             command.add("-i");
             command.add("\"" + inputPath + "\""); // 添加引号以处理特殊字符
-            if (endTime != null && !endTime.isEmpty() && !endTime.equals("00:00:00")) {
-                command.add("-to");
-                command.add(endTime);
+            
+            // 使用 -t (时长) 而不是 -to (结束时间) 以避免时间基准问题
+            if (duration != null) {
+                command.add("-t");
+                command.add(duration);
+                log.info("剪辑参数: 开始时间={}, 时长={}", startTime, duration);
             }
-            command.add("-c copy -y");
+            
+            command.add("-c");
+            command.add("copy");
+            command.add("-y");
             command.add("\"" + outputPath + "\""); // 添加引号以处理特殊字符
+            
             log.info("执行FFmpeg剪辑命令: {}", String.join(" ", command));
 
             // 使用Shell执行命令以正确处理引号
@@ -621,6 +699,61 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             log.error("视频剪辑时发生异常，视频索引: {}", index, e);
             return null;
         }
+    }
+    
+    /**
+     * 计算时长（HH:mm:ss格式）
+     * @param startTime 开始时间
+     * @param endTime 结束时间
+     * @return 时长字符串，格式为HH:mm:ss
+     */
+    private String calculateDuration(String startTime, String endTime) {
+        try {
+            long startSeconds = parseTimeToSeconds(startTime);
+            long endSeconds = parseTimeToSeconds(endTime);
+            
+            if (endSeconds <= startSeconds) {
+                log.error("结束时间 {} 必须晚于开始时间 {}", endTime, startTime);
+                return null;
+            }
+            
+            long durationSeconds = endSeconds - startSeconds;
+            return formatSecondsToTime(durationSeconds);
+        } catch (Exception e) {
+            log.error("计算时长失败，开始时间: {}, 结束时间: {}", startTime, endTime, e);
+            return null;
+        }
+    }
+    
+    /**
+     * 将时间字符串转换为秒数
+     * @param timeStr 时间字符串 (HH:mm:ss)
+     * @return 总秒数
+     */
+    private long parseTimeToSeconds(String timeStr) {
+        String[] parts = timeStr.split(":");
+        if (parts.length != 3) {
+            throw new IllegalArgumentException("时间格式必须为 HH:mm:ss，实际: " + timeStr);
+        }
+        
+        long hours = Long.parseLong(parts[0]);
+        long minutes = Long.parseLong(parts[1]);
+        long seconds = Long.parseLong(parts[2]);
+        
+        return hours * 3600 + minutes * 60 + seconds;
+    }
+    
+    /**
+     * 将秒数转换为时间字符串
+     * @param totalSeconds 总秒数
+     * @return 时间字符串 (HH:mm:ss)
+     */
+    private String formatSecondsToTime(long totalSeconds) {
+        long hours = totalSeconds / 3600;
+        long minutes = (totalSeconds % 3600) / 60;
+        long seconds = totalSeconds % 60;
+        
+        return String.format("%02d:%02d:%02d", hours, minutes, seconds);
     }
 
 
