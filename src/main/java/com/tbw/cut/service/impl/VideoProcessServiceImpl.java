@@ -638,8 +638,8 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             
             // 计算时长以避免时间基准问题
             String duration = null;
-            if (startTime != null && !startTime.isEmpty() && !startTime.equals("00:00:00") &&
-                endTime != null && !endTime.isEmpty() && !endTime.equals("00:00:00")) {
+            if (startTime != null && !startTime.isEmpty() &&
+                endTime != null && !endTime.isEmpty()) {
                 duration = calculateDuration(startTime, endTime);
                 if (duration == null) {
                     log.error("无法计算时长，开始时间: {}, 结束时间: {}", startTime, endTime);
@@ -652,7 +652,7 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             command.add(ffmpegPath);
 
             // 将 -ss 放在 -i 之前以实现快速定位
-            if (startTime != null && !startTime.isEmpty() && !startTime.equals("00:00:00")) {
+            if (startTime != null && !startTime.isEmpty()) {
                 command.add("-ss");
                 command.add(startTime);
             }

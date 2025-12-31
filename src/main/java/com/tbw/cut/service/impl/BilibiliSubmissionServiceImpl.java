@@ -9,6 +9,7 @@ import com.tbw.cut.entity.SubmissionTask;
 import com.tbw.cut.entity.TaskOutputSegment;
 import com.tbw.cut.service.BilibiliSubmissionService;
 import com.tbw.cut.service.SubmissionTaskService;
+import com.tbw.cut.service.VideoSubmissionResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -225,7 +226,7 @@ public class BilibiliSubmissionServiceImpl implements BilibiliSubmissionService 
     /**
      * 单次投稿（分段数量在限制内）
      */
-    private String submitSingleVideo(SubmissionTask task, List<TaskOutputSegment> segments) {
+    private VideoSubmissionResult submitSingleVideoWithResult(SubmissionTask task, List<TaskOutputSegment> segments) {
         try {
             log.info("单次投稿，任务ID: {}, 分段数: {}", task.getTaskId(), segments.size());
             
@@ -249,15 +250,25 @@ public class BilibiliSubmissionServiceImpl implements BilibiliSubmissionService 
                         task.getTaskId(), task.getCollectionId());
                 }
                 
-                return bvid;
+                return VideoSubmissionResult.success(bvid, aid);
             } else {
-                log.error("视频投稿失败: {}", result.toJSONString());
-                return null;
+                String errorMsg = "视频投稿失败: " + result.toJSONString();
+                log.error(errorMsg);
+                return VideoSubmissionResult.failure(errorMsg);
             }
         } catch (Exception e) {
-            log.error("单次投稿失败，任务ID: {}", task.getTaskId(), e);
-            return null;
+            String errorMsg = "单次投稿失败，任务ID: " + task.getTaskId() + ", 错误: " + e.getMessage();
+            log.error(errorMsg, e);
+            return VideoSubmissionResult.failure(errorMsg);
         }
+    }
+
+    /**
+     * 单次投稿（分段数量在限制内）- 保持向后兼容
+     */
+    private String submitSingleVideo(SubmissionTask task, List<TaskOutputSegment> segments) {
+        VideoSubmissionResult result = submitSingleVideoWithResult(task, segments);
+        return result.isSuccess() ? result.getBvid() : null;
     }
     
     /**
@@ -283,22 +294,18 @@ public class BilibiliSubmissionServiceImpl implements BilibiliSubmissionService 
                     batchIndex + 1, totalBatches, startIndex + 1, endIndex, batchSegments.size());
                 
                 if (batchIndex == 0) {
-                    // 第一批：创建新视频
-                    String batchBvid = submitSingleVideo(task, batchSegments);
-                    if (batchBvid == null) {
-                        log.error("第一批投稿失败，无法创建视频，任务ID: {}", task.getTaskId());
+                    // 第一批：创建新视频，直接使用投稿API返回的AID
+                    VideoSubmissionResult submissionResult = submitSingleVideoWithResult(task, batchSegments);
+                    if (!submissionResult.isSuccess()) {
+                        log.error("第一批投稿失败，无法创建视频，任务ID: {}, 错误: {}", 
+                            task.getTaskId(), submissionResult.getErrorMessage());
                         return null;
                     }
                     
-                    mainBvid = batchBvid;
-                    // 从第一批投稿响应中直接获取AID（无需BVID转换）
-                    mainAid = getAidFromSubmissionResponse(batchBvid);
-                    if (mainAid == null) {
-                        log.error("无法获取视频AID，BVID: {}", batchBvid);
-                        return null;
-                    }
+                    mainBvid = submissionResult.getBvid();
+                    mainAid = submissionResult.getAid();  // 直接使用投稿API返回的AID，无需查询！
                     
-                    log.info("第一批投稿成功，创建视频 BVID: {}, AID: {}", mainBvid, mainAid);
+                    log.info("第一批投稿成功，创建视频 BVID: {}, AID: {} (直接从投稿响应获取)", mainBvid, mainAid);
                 } else {
                     // 后续批次：使用编辑API添加分P到现有视频
                     boolean editSuccess = editVideoToAddParts(task, mainAid, segments, startIndex, endIndex);
@@ -333,18 +340,7 @@ public class BilibiliSubmissionServiceImpl implements BilibiliSubmissionService 
         }
     }
     
-    /**
-     * 从投稿响应或API获取AID
-     */
-    private Long getAidFromSubmissionResponse(String bvid) {
-        try {
-            // 使用BVID获取视频信息来获取AID
-            return videoUploadService.getAidFromBvid(bvid);
-        } catch (Exception e) {
-            log.error("获取AID失败: {}", bvid, e);
-            return null;
-        }
-    }
+
     
     /**
      * 使用编辑API添加分P到现有视频
