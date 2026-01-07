@@ -208,4 +208,65 @@ public class TaskExecutorServiceImpl implements TaskExecutorService {
         }
     }
 
+    @Override
+    public boolean executeSubmissionTask(String taskId) {
+        try {
+            log.info("队列系统执行投稿任务，任务ID: {}", taskId);
+            
+            // 1. 获取任务详情
+            SubmissionTask task = submissionTaskService.getTaskDetail(taskId);
+            if (task == null) {
+                log.error("任务不存在，任务ID: {}", taskId);
+                return false;
+            }
+            
+            // 2. 获取分段信息
+            List<TaskOutputSegment> segments = submissionTaskService.getOutputSegmentsByTaskId(taskId);
+            if (segments.isEmpty()) {
+                log.error("没有找到分段信息，任务ID: {}", taskId);
+                submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
+                return false;
+            }
+            
+            // 3. 上传分段文件到B站
+            submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.UPLOADING);
+            boolean uploadSuccess = bilibiliSubmissionService.uploadSegments(taskId, segments);
+            if (!uploadSuccess) {
+                log.error("上传分段文件到B站失败，任务ID: {}", taskId);
+                submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
+                return false;
+            }
+            
+            // 4. 重新获取分段信息以获取上传后的CID
+            segments = submissionTaskService.getOutputSegmentsByTaskId(taskId);
+            
+            // 5. 验证所有分段都有CID
+            boolean allSegmentsHaveCid = segments.stream().allMatch(segment -> segment.getCid() != null);
+            if (!allSegmentsHaveCid) {
+                log.error("部分分段缺少CID，无法提交视频，任务ID: {}", taskId);
+                submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
+                return false;
+            }
+            
+            // 6. 提交视频到B站
+            String bvid = bilibiliSubmissionService.submitVideo(task, segments);
+            if (bvid == null) {
+                log.error("提交视频到B站失败，任务ID: {}", taskId);
+                submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
+                return false;
+            }
+            
+            // 7. 更新任务状态为完成
+            submissionTaskService.updateTaskStatusAndBvid(taskId, SubmissionTask.TaskStatus.COMPLETED, bvid);
+            
+            log.info("队列系统任务执行成功，任务ID: {}, BVID: {}", taskId, bvid);
+            return true;
+            
+        } catch (Exception e) {
+            log.error("队列系统执行任务时发生异常，任务ID: {}", taskId, e);
+            submissionTaskService.updateTaskStatus(taskId, SubmissionTask.TaskStatus.FAILED);
+            return false;
+        }
+    }
+
 }

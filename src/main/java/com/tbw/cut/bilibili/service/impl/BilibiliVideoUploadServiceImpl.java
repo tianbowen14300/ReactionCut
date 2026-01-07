@@ -5,6 +5,7 @@ import com.tbw.cut.bilibili.BilibiliApiClient;
 import com.tbw.cut.bilibili.service.BilibiliVideoUploadService;
 import com.tbw.cut.bilibili.service.RateLimitHandler;
 import com.tbw.cut.bilibili.service.UploadProgressManager;
+import com.tbw.cut.entity.UploadProgress;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -175,7 +176,7 @@ public class BilibiliVideoUploadServiceImpl implements BilibiliVideoUploadServic
         int totalChunks = (int) Math.ceil((double) length / chunkSize);
         
         // 开始或恢复上传进度
-        UploadProgressManager.UploadProgress progress = uploadProgressManager.startUpload(videoFile, totalChunks);
+        UploadProgress progress = uploadProgressManager.startUpload(videoFile, totalChunks);
         uploadProgressManager.setUploadMetadata(progress, preUploadData, postVideoMeta);
         
         // 如果已经完成，直接返回
@@ -200,7 +201,7 @@ public class BilibiliVideoUploadServiceImpl implements BilibiliVideoUploadServic
     /**
      * 支持断点续传的视频上传
      */
-    private int uploadVideoWithResume(UploadProgressManager.UploadProgress progress, File videoFile, 
+    private int uploadVideoWithResume(UploadProgress progress, File videoFile, 
                                     JSONObject preUploadData, JSONObject postVideoMeta) {
         int maxRetries = 3;
         int retryCount = 0;

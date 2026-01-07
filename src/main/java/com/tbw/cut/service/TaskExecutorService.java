@@ -14,4 +14,11 @@ public interface TaskExecutorService {
     void executeTask(String taskId);
 
     void videoUpload(String taskId);
+    
+    /**
+     * 执行投稿任务（队列系统使用）
+     * @param taskId 任务ID
+     * @return 是否成功
+     */
+    boolean executeSubmissionTask(String taskId);
 }
