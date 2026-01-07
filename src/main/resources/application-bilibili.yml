@@ -1,0 +1,13 @@
+# B站投稿相关配置
+bilibili:
+  submission:
+    # 单次投稿最大分P数量（B站限制约100个）
+    max-parts-per-submission: 100
+    # 分批投稿间隔时间（毫秒）
+    batch-interval-ms: 3000
+    # 是否启用分批投稿
+    enable-batch-submission: true
+  
+  # B站API基础URL
+  member:
+    base-url: https://member.bilibili.com

@@ -40,3 +40,12 @@ logging:
   level:
     com.tbw.cut: debug
     com.tbw.cut.utils.FFmpegUtil: info
+
+# 队列配置
+queue:
+  processing:
+    max-retry-count: 3
+    retry-delay-minutes: 30
+    batch-interval-ms: 5000
+    min-task-interval-ms: 5000
+    estimated-task-duration-minutes: 10
