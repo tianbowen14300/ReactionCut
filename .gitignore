@@ -33,8 +33,9 @@ build/
 .vscode/
 
 ### Project specific ###
-.kiro/specs/
+.kiro/
 /bilibili_api/
 /bilibili-API-collect-master/
 /frontend/dist/
 /frontend/node_modules/
+/bilibili_login_info.json
