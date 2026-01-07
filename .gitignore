@@ -31,8 +31,8 @@ build/
 
 ### VS Code ###
 .vscode/
-/BiliTools-master/
+/bilibili_api/
 /frontend/dist/
-/BiliTools-master/
+/bilibili-API-collect-master/
 /frontend/dist/
 /frontend/node_modules/
