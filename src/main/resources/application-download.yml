@@ -1,0 +1,83 @@
+# 视频下载功能配置
+download:
+  # 是否启用增强下载功能
+  enable-enhanced: true
+  
+  # 最大并发任务数
+  max-concurrent-tasks: 3
+  
+  # 最大并发分P数
+  max-concurrent-parts: 2
+  
+  # 下载超时时间（秒）
+  timeout-seconds: 300
+  
+  # 最大重试次数
+  max-retry-attempts: 3
+  
+  # 是否启用断点续传
+  enable-resume: true
+  
+  # 资源监控配置
+  resource-monitor:
+    # 监控间隔（秒）
+    interval: 30
+    
+    # CPU使用率阈值（百分比）
+    cpu-threshold: 80.0
+    
+    # 内存使用率阈值（百分比）
+    memory-threshold: 85.0
+    
+    # 磁盘使用率阈值（百分比）
+    disk-threshold: 90.0
+    
+    # 网络带宽阈值（MB/s）
+    bandwidth-threshold: 50.0
+  
+  # 重试策略配置
+  retry:
+    # 网络错误重试间隔（秒）
+    network-error-delay: 5
+    
+    # 服务器错误重试间隔（秒）
+    server-error-delay: 30
+    
+    # URL过期重试间隔（秒）
+    url-expired-delay: 60
+    
+    # 指数退避最大延迟（秒）
+    max-backoff-delay: 300
+  
+  # 进度跟踪配置
+  progress:
+    # 进度更新间隔（毫秒）
+    update-interval: 1000
+    
+    # 速度计算窗口大小
+    speed-window-size: 10
+    
+    # 是否启用详细进度信息
+    enable-detailed: true
+  
+  # 文件管理配置
+  file:
+    # 临时文件清理间隔（小时）
+    cleanup-interval: 24
+    
+    # 下载状态保留时间（天）
+    state-retention-days: 7
+    
+    # 是否启用文件完整性检查
+    enable-integrity-check: true
+  
+  # WebSocket配置
+  websocket:
+    # 进度推送间隔（毫秒）
+    push-interval: 500
+    
+    # 是否启用进度数据压缩
+    enable-compression: true
+    
+    # 批量推送大小
+    batch-size: 10

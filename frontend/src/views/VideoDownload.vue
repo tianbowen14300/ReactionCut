@@ -576,16 +576,35 @@ export default {
     
     // 解析可用的分辨率
     parseAvailableResolutions(data) {
+      console.log('=== 开始解析分辨率选项 ===')
+      console.log('输入数据:', data)
+      
       this.availableResolutions = []
       
       // 从DASH视频流中获取分辨率信息
       if (data.dash && data.dash.video && data.dash.video.length > 0) {
+        console.log('发现DASH数据，视频流数量:', data.dash.video.length)
+        console.log('DASH视频流详细信息:', data.dash.video)
+        
         const uniqueResolutions = new Set()
-        data.dash.video.forEach(video => {
+        data.dash.video.forEach((video, index) => {
+          console.log(`视频流[${index}]:`, {
+            id: video.id,
+            codecs: video.codecs,
+            width: video.width,
+            height: video.height,
+            bandwidth: video.bandwidth
+          })
+          
           if (video.id) {
             uniqueResolutions.add(video.id)
+            console.log(`添加分辨率ID: ${video.id}`)
+          } else {
+            console.warn(`视频流[${index}]缺少id字段`)
           }
         })
+        
+        console.log('去重后的分辨率ID集合:', Array.from(uniqueResolutions))
         
         // 将唯一分辨率转换为选项
         Array.from(uniqueResolutions).sort((a, b) => b - a).forEach(id => {
@@ -627,21 +646,49 @@ export default {
               break
           }
           
+          console.log(`分辨率映射: ID ${id} -> ${label}`)
+          
           this.availableResolutions.push({
             value: id.toString(),
             label: label
           })
         })
+        
+        console.log('解析完成的分辨率选项:', this.availableResolutions)
+      } else {
+        console.warn('未找到DASH数据或视频流为空')
+        console.log('数据结构检查:')
+        console.log('- data.dash存在:', !!data.dash)
+        if (data.dash) {
+          console.log('- data.dash.video存在:', !!data.dash.video)
+          console.log('- data.dash.video类型:', typeof data.dash.video)
+          console.log('- data.dash.video长度:', data.dash.video ? data.dash.video.length : 'N/A')
+        }
+        
+        // 检查是否有其他格式的数据
+        if (data.durl) {
+          console.log('发现DURL数据（MP4格式）:', data.durl)
+        }
+        if (data.accept_quality) {
+          console.log('发现accept_quality数据:', data.accept_quality)
+        }
+        if (data.accept_description) {
+          console.log('发现accept_description数据:', data.accept_description)
+        }
       }
       
       // 如果仍然没有分辨率信息，设置默认值
       if (this.availableResolutions.length === 0) {
+        console.warn('没有解析到分辨率信息，使用默认配置')
         this.availableResolutions = [
           { value: '64', label: '720P 高清' },
           { value: '80', label: '1080P 高清' },
           { value: '112', label: '1080P+ 高码率' }
         ]
+        console.log('默认分辨率选项:', this.availableResolutions)
       }
+      
+      console.log('=== 分辨率解析完成 ===')
     },
     
     // 解析可用的编码格式
@@ -665,13 +712,14 @@ export default {
               label = 'AV1'
             }
             
-            // 使用Map确保唯一性，避免重复
-            // 修复：直接使用video.codecs作为键
-            const key = video.codecs
-            uniqueCodecs.set(key, {
-              value: video.codecs,
-              label: label
-            })
+            // 修复：使用label作为键来去重，避免相同编码格式的重复显示
+            // 如果已经存在相同的label，优先保留更常见的codecs值
+            if (!uniqueCodecs.has(label)) {
+              uniqueCodecs.set(label, {
+                value: video.codecs,
+                label: label
+              })
+            }
           }
         })
         
@@ -719,13 +767,28 @@ export default {
           fourk: 1     // 允许4K
         }
         
+        // 添加前端请求日志
+        console.log('=== 前端请求视频流信息 ===')
+        console.log('videoId:', videoId)
+        console.log('cid:', cid)
+        console.log('请求参数:', params)
+        
         if (videoId.bvid) {
+          console.log('使用BVID方式请求:', videoId.bvid)
           streamResponse = await getVideoPlayUrl(videoId.bvid, cid, params)
         } else if (videoId.aid) {
+          console.log('使用AID方式请求:', videoId.aid)
           streamResponse = await getVideoPlayUrlByAid(videoId.aid, cid, params)
         }
         
+        // 添加响应数据日志
+        console.log('=== 前端接收到的响应数据 ===')
+        console.log('完整响应:', streamResponse)
+        
         if (streamResponse && streamResponse.code === 0) {
+          console.log('API调用成功，开始解析数据')
+          console.log('响应数据:', streamResponse.data)
+          
           // 解析可用的下载配置
           this.parseAvailableResolutions(streamResponse.data)
           this.parseAvailableCodecs(streamResponse.data)
@@ -741,8 +804,15 @@ export default {
           if (!this.downloadConfig.format && this.availableFormats.length > 0) {
             this.downloadConfig.format = this.availableFormats[0].value
           }
+          
+          // 输出最终解析结果
+          console.log('=== 解析结果 ===')
+          console.log('可用分辨率:', this.availableResolutions)
+          console.log('可用编码格式:', this.availableCodecs)
+          console.log('可用流媒体格式:', this.availableFormats)
         } else {
           console.error('获取视频流信息失败:', streamResponse ? streamResponse.message : '无响应')
+          console.error('错误响应:', streamResponse)
           // 如果获取流信息失败，使用默认配置
           this.setupDefaultConfigs()
         }

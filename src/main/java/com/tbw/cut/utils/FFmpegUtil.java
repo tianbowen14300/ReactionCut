@@ -1,6 +1,8 @@
 package com.tbw.cut.utils;
 
+import com.tbw.cut.service.download.retry.RetryManager;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -25,6 +27,9 @@ public class FFmpegUtil {
     
     @Value("${app.temp-dir:./temp}")
     private String tempDir;
+    
+    @Autowired
+    private RetryManager retryManager;
     
     // Getter methods
     public String getVideoStorageDir() {
@@ -130,12 +135,23 @@ public class FFmpegUtil {
     }
     
     /**
-     * 使用ffprobe获取视频时长（微秒）
+     * 使用ffprobe获取视频时长（微秒）- 增强版本，使用重试管理器
      * @param videoUrl 视频URL
      * @return 视频时长（微秒），如果获取失败返回0
      */
     public long getDurationByFFprobe(String videoUrl) {
-        return getDurationByFFprobeWithRetry(videoUrl, 3);
+        try {
+            return retryManager.executeWithRetry(() -> {
+                try {
+                    return executeDurationDetection(videoUrl, 1);
+                } catch (IOException | InterruptedException e) {
+                    throw new RuntimeException("Duration detection failed", e);
+                }
+            }, "get-duration-" + videoUrl.hashCode()).join();
+        } catch (Exception e) {
+            log.error("Failed to get video duration after all retries: {}", videoUrl, e);
+            return tryFallbackDurationDetection(videoUrl);
+        }
     }
     
     /**
@@ -333,7 +349,7 @@ public class FFmpegUtil {
     }
     
     /**
-     * Download video with retry mechanism
+     * Download video with enhanced retry mechanism
      * @param videoUrl Video URL
      * @param outputFileName Output file name
      * @param outputDirectory Output directory
@@ -344,53 +360,23 @@ public class FFmpegUtil {
      */
     private String downloadVideoWithRetry(String videoUrl, String outputFileName, String outputDirectory, 
                                         long totalDuration, ProgressCallback progressCallback, int maxRetries) {
-        int attempt = 0;
-        long baseDelayMs = 2000; // 2 second base delay
         String outputPath = outputDirectory + File.separator + outputFileName;
         
-        while (attempt < maxRetries) {
-            attempt++;
-            log.info("Attempting video download (attempt {}/{}): {}", attempt, maxRetries, videoUrl);
-            
-            try {
-                String result = executeVideoDownload(videoUrl, outputPath, totalDuration, progressCallback, attempt);
-                if (result != null) {
-                    return result;
-                }
-            } catch (IOException e) {
-                log.warn("Download connection failed on attempt {}: {}", attempt, e.getMessage());
-                if (e.getMessage() != null && e.getMessage().contains("Stream closed")) {
-                    log.info("Detected 'Stream closed' error, will retry with enhanced parameters");
-                }
-                
-                // Clean up partial file
-                cleanupPartialFile(outputPath);
-                
-            } catch (InterruptedException e) {
-                log.warn("Download interrupted on attempt {}", attempt);
-                cleanupPartialFile(outputPath);
-                Thread.currentThread().interrupt();
-                break;
-            } catch (Exception e) {
-                log.warn("Download failed on attempt {}: {}", attempt, e.getMessage());
-                cleanupPartialFile(outputPath);
-            }
-            
-            // If not the last attempt, wait before retrying with exponential backoff
-            if (attempt < maxRetries) {
-                long delayMs = baseDelayMs * (1L << (attempt - 1)); // Exponential backoff: 2s, 4s, 8s
-                log.info("Waiting {} ms before retry...", delayMs);
+        try {
+            return retryManager.executeWithRetry(() -> {
                 try {
-                    Thread.sleep(delayMs);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
+                    return executeVideoDownload(videoUrl, outputPath, totalDuration, progressCallback, 1);
+                } catch (Exception e) {
+                    // 清理部分文件
+                    cleanupPartialFile(outputPath);
+                    throw new RuntimeException("Download failed", e);
                 }
-            }
+            }, "download-" + outputPath.hashCode()).join();
+        } catch (Exception e) {
+            log.error("Failed to download video after all retries: {}", videoUrl, e);
+            cleanupPartialFile(outputPath);
+            return null;
         }
-        
-        log.error("Failed to download video after {} attempts: {}", maxRetries, videoUrl);
-        return null;
     }
     
     /**
@@ -530,22 +516,90 @@ public class FFmpegUtil {
     }
     
     /**
-     * Clean up partial download file
+     * Clean up partial download file with enhanced error handling
      * @param filePath Path to the file to clean up
      */
     private void cleanupPartialFile(String filePath) {
         try {
             File file = new File(filePath);
             if (file.exists()) {
-                boolean deleted = file.delete();
+                // 尝试多次删除，有时文件可能被锁定
+                boolean deleted = false;
+                for (int i = 0; i < 3; i++) {
+                    deleted = file.delete();
+                    if (deleted) {
+                        break;
+                    }
+                    try {
+                        Thread.sleep(100); // 等待100ms后重试
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+                
                 if (deleted) {
                     log.info("Cleaned up partial file: {}", filePath);
                 } else {
-                    log.warn("Failed to delete partial file: {}", filePath);
+                    log.warn("Failed to delete partial file after multiple attempts: {}", filePath);
+                    // 标记文件为删除（在某些系统上可能有用）
+                    file.deleteOnExit();
                 }
             }
+        } catch (SecurityException e) {
+            log.error("Security exception when cleaning up partial file {}: {}", filePath, e.getMessage());
         } catch (Exception e) {
-            log.warn("Error cleaning up partial file {}: {}", filePath, e.getMessage());
+            log.warn("Unexpected error cleaning up partial file {}: {}", filePath, e.getMessage());
+        }
+    }
+    
+    /**
+     * 验证下载文件的完整性
+     * @param filePath 文件路径
+     * @param expectedMinSize 期望的最小文件大小
+     * @return 文件是否有效
+     */
+    public boolean validateDownloadedFile(String filePath, long expectedMinSize) {
+        try {
+            File file = new File(filePath);
+            if (!file.exists()) {
+                log.warn("Downloaded file does not exist: {}", filePath);
+                return false;
+            }
+            
+            if (file.length() < expectedMinSize) {
+                log.warn("Downloaded file is too small: {} bytes, expected at least {} bytes", 
+                    file.length(), expectedMinSize);
+                return false;
+            }
+            
+            // 检查文件是否可读
+            if (!file.canRead()) {
+                log.warn("Downloaded file is not readable: {}", filePath);
+                return false;
+            }
+            
+            log.debug("Downloaded file validation passed: {} ({} bytes)", filePath, file.length());
+            return true;
+            
+        } catch (Exception e) {
+            log.error("Error validating downloaded file: {}", filePath, e);
+            return false;
+        }
+    }
+    
+    /**
+     * 获取文件大小
+     * @param filePath 文件路径
+     * @return 文件大小（字节），如果文件不存在返回-1
+     */
+    public long getFileSize(String filePath) {
+        try {
+            File file = new File(filePath);
+            return file.exists() ? file.length() : -1;
+        } catch (Exception e) {
+            log.error("Error getting file size: {}", filePath, e);
+            return -1;
         }
     }
     
