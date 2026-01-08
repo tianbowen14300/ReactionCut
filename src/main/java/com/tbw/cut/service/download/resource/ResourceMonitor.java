@@ -55,11 +55,6 @@ public class ResourceMonitor {
         try {
             SystemResourceInfo resourceInfo = getCurrentResourceInfo();
             
-            log.debug("System resources - CPU: {:.1f}%, Memory: {:.1f}%, Disk: {} GB", 
-                resourceInfo.getCpuUsage() * 100,
-                resourceInfo.getMemoryUsage() * 100,
-                resourceInfo.getAvailableDiskSpaceGB());
-            
             // 检查是否需要调整并发数
             adjustConcurrencyBasedOnResources(resourceInfo);
             
