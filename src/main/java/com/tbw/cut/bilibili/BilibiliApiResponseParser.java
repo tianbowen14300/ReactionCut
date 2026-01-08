@@ -71,6 +71,7 @@ public class BilibiliApiResponseParser {
         BilibiliApiResponse apiResponse = parse(response);
         
         if (!apiResponse.isSuccess()) {
+            log.error("API请求失败 - code: {}, message: {}", apiResponse.getCode(), apiResponse.getMessage());
             throw new RuntimeException("Bilibili API请求失败: " + apiResponse.getMessage() + 
                                      " (code: " + apiResponse.getCode() + ")");
         }

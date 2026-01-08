@@ -1,5 +1,6 @@
 package com.tbw.cut.service.download.progress;
 
+import com.tbw.cut.config.DownloadConfig;
 import com.tbw.cut.service.download.model.DetailedProgress;
 import com.tbw.cut.service.PartDownloadService;
 import com.tbw.cut.websocket.DownloadProgressWebSocket;
@@ -23,6 +24,9 @@ public class ProgressTracker {
     
     @Autowired
     private PartDownloadService partDownloadService;
+    
+    @Autowired
+    private DownloadConfig downloadConfig;
     
     private final Map<Long, ProgressCalculator> progressCalculators = new ConcurrentHashMap<>();
     private final Map<Long, DetailedProgress> currentProgress = new ConcurrentHashMap<>();
@@ -193,8 +197,11 @@ public class ProgressTracker {
      */
     private void broadcastProgress(Long taskId, DetailedProgress progress) {
         try {
-            // 推送简单进度信息（兼容现有WebSocket）
-            DownloadProgressWebSocket.broadcastProgressUpdate(taskId, progress.getProgressPercentage());
+            // 推送简单进度信息（使用配置化的节流参数）
+            DownloadProgressWebSocket.broadcastProgressUpdate(taskId, progress.getProgressPercentage(),
+                downloadConfig.getProgressUpdateIntervalMs(),
+                downloadConfig.getProgressChangeThreshold(),
+                downloadConfig.isEnableProgressThrottling());
             
             // 推送详细进度信息（新增）
             broadcastDetailedProgress(taskId, progress);

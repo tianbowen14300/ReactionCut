@@ -20,6 +20,7 @@ target/
 *.ipr
 
 ### NetBeans ###
+/BiliTools-master 2/
 /nbproject/private/
 /nbbuild/
 /dist/

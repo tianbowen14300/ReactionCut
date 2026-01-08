@@ -47,7 +47,7 @@ public class VideoDownloadController {
      * 查询下载任务状态
      */
     @GetMapping("/{taskId}")
-    public ResponseResult<VideoDownload> getDownloadStatus(@PathVariable Long taskId) {
+    public ResponseResult<VideoDownload> getDownloadStatus(@PathVariable("taskId") Long taskId) {
         try {
             VideoDownload download = videoDownloadService.getById(taskId);
             if (download != null) {
@@ -107,8 +107,9 @@ public class VideoDownloadController {
      * 删除下载记录
      */
     @DeleteMapping("/{taskId}")
-    public ResponseResult<Boolean> deleteDownloadRecord(@PathVariable Long taskId) {
+    public ResponseResult<Boolean> deleteDownloadRecord(@PathVariable("taskId") Long taskId) {
         try {
+            log.info("删除下载记录请求: taskId={}", taskId);
             boolean result = videoDownloadService.deleteDownloadRecord(taskId);
             if (result) {
                 return ResponseResult.success("删除成功", true);
@@ -116,7 +117,7 @@ public class VideoDownloadController {
                 return ResponseResult.error("删除失败，未找到记录");
             }
         } catch (Exception e) {
-            log.error("删除下载记录失败", e);
+            log.error("删除下载记录失败: taskId={}", taskId, e);
             return ResponseResult.error("删除下载记录失败: " + e.getMessage());
         }
     }

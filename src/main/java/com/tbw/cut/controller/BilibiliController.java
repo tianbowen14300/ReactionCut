@@ -312,6 +312,75 @@ public class BilibiliController {
         }
     }
     
+    /**
+     * 获取视频可用分辨率选项
+     * @param bvid 视频BV号 (可选)
+     * @param aid 视频AV号 (可选)
+     * @param cid 视频CID
+     * @return 分辨率选项列表
+     */
+    @GetMapping("/video/resolution/options")
+    public ResponseResult<JSONObject> getVideoResolutionOptions(@RequestParam(required = false) String bvid,
+                                                               @RequestParam(required = false) String aid, 
+                                                               @RequestParam String cid) {
+        try {
+            if (bvid == null && aid == null) {
+                return ResponseResult.error("BV号或AV号不能为空");
+            }
+            
+            if (cid == null || cid.isEmpty()) {
+                return ResponseResult.error("CID不能为空");
+            }
+            
+            // 使用fnval=4048获取所有可用的DASH格式分辨率选项
+            JSONObject playInfo = null;
+            if (bvid != null && !bvid.isEmpty()) {
+                playInfo = bilibiliVideoService.getVideoPlayInfo(bvid, cid, null, "4048", "0", "1");
+            } else if (aid != null && !aid.isEmpty()) {
+                playInfo = bilibiliVideoService.getVideoPlayInfoByAid(aid, cid, null, "4048", "0", "1");
+            }
+            
+            if (playInfo == null) {
+                return ResponseResult.error("无法获取视频播放信息");
+            }
+            
+            // 构建分辨率选项响应
+            JSONObject result = new JSONObject();
+            
+            // 提取accept_quality和accept_description
+            if (playInfo.containsKey("accept_quality") && playInfo.containsKey("accept_description")) {
+                Object acceptQuality = playInfo.get("accept_quality");
+                Object acceptDescription = playInfo.get("accept_description");
+                
+                log.info("分辨率选项 - accept_quality: {}, accept_description: {}", 
+                        acceptQuality, acceptDescription);
+                
+                result.put("accept_quality", acceptQuality);
+                result.put("accept_description", acceptDescription);
+            } else {
+                log.warn("API响应中缺少分辨率选项字段 - accept_quality存在: {}, accept_description存在: {}", 
+                        playInfo.containsKey("accept_quality"), playInfo.containsKey("accept_description"));
+                result.put("accept_quality", new com.alibaba.fastjson.JSONArray());
+                result.put("accept_description", new com.alibaba.fastjson.JSONArray());
+            }
+            
+            // 添加其他有用信息
+            result.put("quality", playInfo.get("quality")); // 当前质量
+            result.put("format", playInfo.get("format")); // 当前格式
+            result.put("accept_format", playInfo.get("accept_format")); // 支持的格式
+            
+            // 如果有support_formats，也包含进来
+            if (playInfo.containsKey("support_formats")) {
+                result.put("support_formats", playInfo.get("support_formats"));
+            }
+            
+            return ResponseResult.success(result);
+        } catch (Exception e) {
+            log.error("获取视频分辨率选项失败: bvid={}, aid={}, cid={}", bvid, aid, cid, e);
+            return ResponseResult.error("获取视频分辨率选项失败: " + e.getMessage());
+        }
+    }
+    
     // ==================== 登录相关接口 ====================
     
     /**

@@ -1,9 +1,12 @@
 package com.tbw.cut.service.download.retry;
 
+import com.tbw.cut.service.VideoUrlRefreshService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
+import java.io.IOException;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
@@ -19,6 +22,9 @@ import java.util.function.Supplier;
 @Slf4j
 @Component
 public class RetryManager {
+    
+    @Autowired
+    private VideoUrlRefreshService videoUrlRefreshService;
     
     private final Map<Class<? extends Exception>, RetryStrategy> retryStrategies = new ConcurrentHashMap<>();
     
@@ -39,6 +45,14 @@ public class RetryManager {
         // HTTP重试异常：条件重试
         retryStrategies.put(HttpRetryException.class, 
             new ConditionalRetryStrategy());
+        
+        // URL过期异常：URL刷新重试
+        retryStrategies.put(UrlExpiredException.class, 
+            new UrlRefreshRetryStrategy(videoUrlRefreshService));
+        
+        // IO异常（包括403错误）：智能重试
+        retryStrategies.put(IOException.class, 
+            new IoRetryStrategy(videoUrlRefreshService));
         
         log.info("Initialized retry strategies for {} exception types", retryStrategies.size());
     }
@@ -251,6 +265,77 @@ public class RetryManager {
     }
     
     /**
+     * URL刷新重试策略
+     */
+    public static class UrlRefreshRetryStrategy implements RetryStrategy {
+        private final VideoUrlRefreshService urlRefreshService;
+        
+        public UrlRefreshRetryStrategy(VideoUrlRefreshService urlRefreshService) {
+            this.urlRefreshService = urlRefreshService;
+        }
+        
+        @Override
+        public boolean shouldRetry(int attempt, Exception exception) {
+            if (attempt >= 2) {
+                return false; // 最多重试2次
+            }
+            
+            if (exception instanceof UrlExpiredException) {
+                UrlExpiredException urlException = (UrlExpiredException) exception;
+                // 尝试刷新URL
+                String newUrl = urlRefreshService.smartRefreshUrl(
+                    urlException.getOriginalUrl(), urlException.getBvid());
+                
+                if (newUrl != null) {
+                    urlException.setRefreshedUrl(newUrl);
+                    log.info("URL refreshed successfully for retry attempt {}", attempt + 1);
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+        
+        @Override
+        public long getDelayMs(int attempt) {
+            return 2000; // 2秒延迟给URL刷新时间
+        }
+    }
+    
+    /**
+     * IO异常重试策略（处理403等HTTP错误）
+     */
+    public static class IoRetryStrategy implements RetryStrategy {
+        private final VideoUrlRefreshService urlRefreshService;
+        
+        public IoRetryStrategy(VideoUrlRefreshService urlRefreshService) {
+            this.urlRefreshService = urlRefreshService;
+        }
+        
+        @Override
+        public boolean shouldRetry(int attempt, Exception exception) {
+            if (attempt >= 3) {
+                return false;
+            }
+            
+            // 检查是否是403错误（可能是URL过期）
+            String message = exception.getMessage();
+            if (message != null && message.contains("403")) {
+                log.info("Detected 403 error, might be URL expiration: {}", message);
+                return true; // 允许重试，让调用方处理URL刷新
+            }
+            
+            // 其他IO异常也允许重试
+            return true;
+        }
+        
+        @Override
+        public long getDelayMs(int attempt) {
+            return 3000 * (attempt + 1); // 3s, 6s, 9s
+        }
+    }
+    
+    /**
      * HTTP重试异常
      */
     public static class HttpRetryException extends Exception {
@@ -263,6 +348,37 @@ public class RetryManager {
         
         public int getStatusCode() {
             return statusCode;
+        }
+    }
+    
+    /**
+     * URL过期异常
+     */
+    public static class UrlExpiredException extends Exception {
+        private final String originalUrl;
+        private final String bvid;
+        private String refreshedUrl;
+        
+        public UrlExpiredException(String originalUrl, String bvid, String message) {
+            super(message);
+            this.originalUrl = originalUrl;
+            this.bvid = bvid;
+        }
+        
+        public String getOriginalUrl() {
+            return originalUrl;
+        }
+        
+        public String getBvid() {
+            return bvid;
+        }
+        
+        public String getRefreshedUrl() {
+            return refreshedUrl;
+        }
+        
+        public void setRefreshedUrl(String refreshedUrl) {
+            this.refreshedUrl = refreshedUrl;
         }
     }
     

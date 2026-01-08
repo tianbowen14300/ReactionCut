@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.util.Map;
 
 /**
  * 视频分P信息
@@ -58,6 +59,16 @@ public class VideoPart {
      * 数据库记录ID（用于关联VideoDownload表记录）
      */
     private Long databaseId;
+    
+    /**
+     * 视频BVID（用于URL刷新）
+     */
+    private String bvid;
+    
+    /**
+     * 额外参数（用于存储DASH合并等特殊信息）
+     */
+    private Map<String, Object> extraParams;
     
     /**
      * 获取分P索引（兼容方法）

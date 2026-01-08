@@ -284,7 +284,7 @@ public class FrontendPartDownloadServiceImpl implements FrontendPartDownloadServ
             }
         }
         
-        // 处理格式
+        // 处理格式 - 优先使用包含音频的格式
         if (config.containsKey("format")) {
             Object formatObj = config.get("format");
             if (formatObj != null) {
@@ -295,6 +295,10 @@ public class FrontendPartDownloadServiceImpl implements FrontendPartDownloadServ
                     log.info("设置格式参数 fnval={}", fnval);
                 }
             }
+        } else {
+            // 默认优先使用MP4格式（包含音频）
+            bilibiliParams.put("fnval", "1"); // MP4格式，包含音频
+            log.info("使用默认MP4格式 fnval=1");
         }
         
         // 处理编码格式
@@ -331,8 +335,10 @@ public class FrontendPartDownloadServiceImpl implements FrontendPartDownloadServ
             }
         } else {
             // 默认获取包含音频的视频流
-            bilibiliParams.put("fnval", "1"); // MP4格式，包含音频
-            log.info("使用默认模式（包含音频），fnval=1");
+            if (!bilibiliParams.containsKey("fnval")) {
+                bilibiliParams.put("fnval", "1"); // MP4格式，包含音频
+                log.info("使用默认模式（包含音频），fnval=1");
+            }
         }
         
         // 设置默认值
@@ -356,13 +362,13 @@ public class FrontendPartDownloadServiceImpl implements FrontendPartDownloadServ
     private String convertFormatToFnval(String format) {
         switch (format.toLowerCase()) {
             case "mp4":
-                return "1";
+                return "1";  // MP4格式，包含音频
             case "flv":
-                return "0";
+                return "0";  // FLV格式（已下线）
             case "dash":
-                return "16";
+                return "16"; // DASH格式，需要合并音视频
             default:
-                return "16"; // 默认DASH
+                return "1";  // 默认MP4格式，确保有音频
         }
     }
     
@@ -387,7 +393,7 @@ public class FrontendPartDownloadServiceImpl implements FrontendPartDownloadServ
     }
     
     /**
-     * 获取实际的视频流URL
+     * 获取实际的视频流URL（支持DASH格式的音视频合并）
      */
     private String getActualVideoStreamUrl(String bvid, String aid, String cid, Map<String, String> params) {
         try {
@@ -432,8 +438,11 @@ public class FrontendPartDownloadServiceImpl implements FrontendPartDownloadServ
                     }
                 }
                 
-                // 如果没有durl，再尝试DASH格式
+                // 如果没有durl，处理DASH格式（需要合并音视频流）
                 if (playInfo.containsKey("dash")) {
+                    log.warn("检测到DASH格式，但当前实现不支持音视频合并，可能导致无音频问题");
+                    log.warn("建议使用EnhancedFrontendPartDownloadServiceImpl以获得完整的DASH支持");
+                    
                     com.alibaba.fastjson.JSONObject dash = playInfo.getJSONObject("dash");
                     if (dash != null && dash.containsKey("video")) {
                         com.alibaba.fastjson.JSONArray videos = dash.getJSONArray("video");
@@ -512,11 +521,11 @@ public class FrontendPartDownloadServiceImpl implements FrontendPartDownloadServ
                             
                             if (matchedVideo.containsKey("baseUrl")) {
                                 String baseUrl = matchedVideo.getString("baseUrl");
-                                log.info("获取到DASH视频流URL (baseUrl): {}", baseUrl);
+                                log.warn("获取到DASH视频流URL (仅视频，无音频): {}", baseUrl);
                                 return baseUrl;
                             } else if (matchedVideo.containsKey("base_url")) {
                                 String baseUrl = matchedVideo.getString("base_url");
-                                log.info("获取到DASH视频流URL (base_url): {}", baseUrl);
+                                log.warn("获取到DASH视频流URL (仅视频，无音频): {}", baseUrl);
                                 return baseUrl;
                             }
                         }

@@ -9,6 +9,12 @@ download:
   # 最大并发分P数
   max-concurrent-parts: 2
   
+  # 最大并发视频数量（视频级别控制）
+  max-concurrent-videos: 3
+  
+  # 视频下载队列容量
+  queue-capacity: 100
+  
   # 下载超时时间（秒）
   timeout-seconds: 300
   
@@ -81,3 +87,8 @@ download:
     
     # 批量推送大小
     batch-size: 10
+  
+  # WebSocket进度更新节流控制
+  progress-update-interval-ms: 2000  # 增加到2秒间隔
+  progress-change-threshold: 10      # 增加到10%变化阈值
+  enable-progress-throttling: true

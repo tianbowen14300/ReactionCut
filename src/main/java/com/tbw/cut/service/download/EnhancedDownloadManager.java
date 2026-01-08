@@ -5,6 +5,7 @@ import com.tbw.cut.service.download.model.*;
 import com.tbw.cut.service.download.progress.ProgressTracker;
 import com.tbw.cut.service.download.retry.RetryManager;
 import com.tbw.cut.service.download.resource.ResourceMonitor;
+import com.tbw.cut.service.download.queue.VideoDownloadQueueManager;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,9 @@ public class EnhancedDownloadManager {
     private final ProgressTracker progressTracker;
     private final RetryManager retryManager;
     private final ResourceMonitor resourceMonitor;
+    
+    @Autowired(required = false)
+    private VideoDownloadQueueManager videoQueueManager;
     
     @Autowired
     public EnhancedDownloadManager(
@@ -68,6 +72,35 @@ public class EnhancedDownloadManager {
     }
     
     /**
+     * 通过视频队列管理器提交下载任务
+     * @param request 视频下载请求
+     * @return 下载任务的Future
+     */
+    public CompletableFuture<DownloadResult> submitVideoDownload(VideoDownloadRequest request) {
+        if (videoQueueManager != null) {
+            return videoQueueManager.submitVideoDownload(request);
+        } else {
+            // 降级到直接下载
+            return startDownload(request.getVideoUrl(), request.getParts(), request.getConfig());
+        }
+    }
+    
+    /**
+     * 通过视频队列管理器提交下载任务（带优先级）
+     * @param request 视频下载请求
+     * @param priority 优先级
+     * @return 下载任务的Future
+     */
+    public CompletableFuture<DownloadResult> submitVideoDownload(VideoDownloadRequest request, int priority) {
+        if (videoQueueManager != null) {
+            return videoQueueManager.submitVideoDownload(request, priority);
+        } else {
+            // 降级到直接下载
+            return startDownload(request.getVideoUrl(), request.getParts(), request.getConfig());
+        }
+    }
+    
+    /**
      * 暂停下载任务
      * @param taskId 任务ID
      */
@@ -82,6 +115,13 @@ public class EnhancedDownloadManager {
      */
     public void cancelDownload(Long taskId) {
         log.info("Cancelling download for task: {}", taskId);
+        
+        // 尝试通过队列管理器取消
+        if (videoQueueManager != null && videoQueueManager.cancelDownload(taskId)) {
+            return;
+        }
+        
+        // 降级到直接取消
         concurrentExecutor.cancelTask(taskId);
     }
     
@@ -92,6 +132,36 @@ public class EnhancedDownloadManager {
      */
     public DetailedProgress getDownloadProgress(Long taskId) {
         return progressTracker.getDetailedProgress(taskId);
+    }
+    
+    /**
+     * 获取视频任务状态
+     * @param taskId 任务ID
+     * @return 视频任务状态
+     */
+    public VideoDownloadTask getVideoTaskStatus(Long taskId) {
+        if (videoQueueManager != null) {
+            return videoQueueManager.getTaskStatus(taskId);
+        }
+        return null;
+    }
+    
+    /**
+     * 获取队列状态
+     * @return 队列状态
+     */
+    public QueueStatus getQueueStatus() {
+        if (videoQueueManager != null) {
+            return videoQueueManager.getQueueStatus();
+        }
+        
+        // 降级返回基本状态
+        return QueueStatus.builder()
+            .activeDownloads(concurrentExecutor.getActiveTaskCount())
+            .pendingDownloads(concurrentExecutor.getQueuedTaskCount())
+            .maxConcurrentVideos(1)
+            .totalTasks(concurrentExecutor.getActiveTaskCount())
+            .build();
     }
     
     /**
@@ -126,6 +196,16 @@ public class EnhancedDownloadManager {
     public void updateConcurrency(int newConcurrency) {
         log.info("Updating download concurrency to: {}", newConcurrency);
         concurrentExecutor.updateConcurrency(newConcurrency);
+    }
+    
+    /**
+     * 更新视频级别最大并发数
+     * @param newMaxConcurrent 新的最大并发数
+     */
+    public void updateMaxConcurrentVideos(int newMaxConcurrent) {
+        if (videoQueueManager != null) {
+            videoQueueManager.updateMaxConcurrentVideos(newMaxConcurrent);
+        }
     }
     
     /**

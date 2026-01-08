@@ -95,62 +95,14 @@ public class BilibiliVideoServiceImpl implements BilibiliVideoService {
             params.put("fnver", fnver != null ? fnver : "0");
             params.put("fourk", fourk != null ? fourk : "1");
             
-            // 添加详细日志用于排查分辨率选项问题
-            log.info("=== 视频播放信息请求参数 ===");
-            log.info("bvid: {}, cid: {}", bvid, cid);
-            log.info("请求参数 - qn: {}, fnval: {}, fnver: {}, fourk: {}", 
-                    params.get("qn"), params.get("fnval"), params.get("fnver"), params.get("fourk"));
-            log.info("API URL: {}", url);
-            
             // 使用带WBI签名的请求
             String response = apiClient.getWithWbiSign(url, params);
             JSONObject data = responseParser.parseAndCheck(response).getData();
             
-            // 添加响应数据日志
-            log.info("=== Bilibili API响应数据分析 ===");
+            // 记录关键的分辨率信息
             if (data != null) {
-                // 记录基本信息
-                log.info("响应质量: {}", data.get("quality"));
-                log.info("响应格式: {}", data.get("format"));
-                log.info("支持的清晰度列表: {}", data.get("accept_quality"));
-                log.info("支持的清晰度描述: {}", data.get("accept_description"));
-                
-                // 分析DASH数据
-                JSONObject dash = data.getJSONObject("dash");
-                if (dash != null) {
-                    log.info("DASH数据存在");
-                    Object videoArray = dash.get("video");
-                    if (videoArray != null) {
-                        log.info("DASH视频流数据: {}", videoArray.toString());
-                        // 如果是数组，记录数组长度和每个视频流的分辨率ID
-                        if (videoArray instanceof com.alibaba.fastjson.JSONArray) {
-                            com.alibaba.fastjson.JSONArray videos = (com.alibaba.fastjson.JSONArray) videoArray;
-                            log.info("DASH视频流数量: {}", videos.size());
-                            for (int i = 0; i < videos.size(); i++) {
-                                JSONObject video = videos.getJSONObject(i);
-                                if (video != null) {
-                                    log.info("视频流[{}] - id: {}, codecs: {}, width: {}, height: {}", 
-                                            i, video.get("id"), video.get("codecs"), 
-                                            video.get("width"), video.get("height"));
-                                }
-                            }
-                        }
-                    } else {
-                        log.warn("DASH数据中没有video字段");
-                    }
-                } else {
-                    log.warn("响应数据中没有DASH字段");
-                }
-                
-                // 分析durl数据（MP4格式）
-                Object durlArray = data.get("durl");
-                if (durlArray != null) {
-                    log.info("DURL数据存在（MP4格式）: {}", durlArray.toString());
-                } else {
-                    log.info("响应数据中没有DURL字段");
-                }
-            } else {
-                log.error("API响应数据为空");
+                log.info("视频播放信息 - bvid: {}, cid: {}, quality: {}, accept_quality: {}", 
+                        bvid, cid, data.get("quality"), data.get("accept_quality"));
             }
             
             return data;
@@ -184,62 +136,14 @@ public class BilibiliVideoServiceImpl implements BilibiliVideoService {
             params.put("fnver", fnver != null ? fnver : "0");
             params.put("fourk", fourk != null ? fourk : "1");
             
-            // 添加详细日志用于排查分辨率选项问题
-            log.info("=== 视频播放信息请求参数（AID方式） ===");
-            log.info("aid: {}, cid: {}", aid, cid);
-            log.info("请求参数 - qn: {}, fnval: {}, fnver: {}, fourk: {}", 
-                    params.get("qn"), params.get("fnval"), params.get("fnver"), params.get("fourk"));
-            log.info("API URL: {}", url);
-            
             // 使用带WBI签名的请求
             String response = apiClient.getWithWbiSign(url, params);
             JSONObject data = responseParser.parseAndCheck(response).getData();
             
-            // 添加响应数据日志
-            log.info("=== Bilibili API响应数据分析（AID方式） ===");
+            // 记录关键的分辨率信息
             if (data != null) {
-                // 记录基本信息
-                log.info("响应质量: {}", data.get("quality"));
-                log.info("响应格式: {}", data.get("format"));
-                log.info("支持的清晰度列表: {}", data.get("accept_quality"));
-                log.info("支持的清晰度描述: {}", data.get("accept_description"));
-                
-                // 分析DASH数据
-                JSONObject dash = data.getJSONObject("dash");
-                if (dash != null) {
-                    log.info("DASH数据存在");
-                    Object videoArray = dash.get("video");
-                    if (videoArray != null) {
-                        log.info("DASH视频流数据: {}", videoArray.toString());
-                        // 如果是数组，记录数组长度和每个视频流的分辨率ID
-                        if (videoArray instanceof com.alibaba.fastjson.JSONArray) {
-                            com.alibaba.fastjson.JSONArray videos = (com.alibaba.fastjson.JSONArray) videoArray;
-                            log.info("DASH视频流数量: {}", videos.size());
-                            for (int i = 0; i < videos.size(); i++) {
-                                JSONObject video = videos.getJSONObject(i);
-                                if (video != null) {
-                                    log.info("视频流[{}] - id: {}, codecs: {}, width: {}, height: {}", 
-                                            i, video.get("id"), video.get("codecs"), 
-                                            video.get("width"), video.get("height"));
-                                }
-                            }
-                        }
-                    } else {
-                        log.warn("DASH数据中没有video字段");
-                    }
-                } else {
-                    log.warn("响应数据中没有DASH字段");
-                }
-                
-                // 分析durl数据（MP4格式）
-                Object durlArray = data.get("durl");
-                if (durlArray != null) {
-                    log.info("DURL数据存在（MP4格式）: {}", durlArray.toString());
-                } else {
-                    log.info("响应数据中没有DURL字段");
-                }
-            } else {
-                log.error("API响应数据为空");
+                log.info("视频播放信息 - aid: {}, cid: {}, quality: {}, accept_quality: {}", 
+                        aid, cid, data.get("quality"), data.get("accept_quality"));
             }
             
             return data;

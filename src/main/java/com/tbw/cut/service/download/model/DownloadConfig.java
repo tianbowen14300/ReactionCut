@@ -6,7 +6,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 下载配置
+ * 下载配置模型
+ * 用于传递给下载组件的配置信息
  */
 @Data
 @Builder
@@ -15,105 +16,89 @@ import lombok.NoArgsConstructor;
 public class DownloadConfig {
     
     /**
-     * 下载名称
-     */
-    private String downloadName;
-    
-    /**
-     * 下载路径
-     */
-    private String downloadPath;
-    
-    /**
-     * 分辨率
-     */
-    private String resolution;
-    
-    /**
-     * 编码格式
-     */
-    private String codec;
-    
-    /**
-     * 流媒体格式
-     */
-    private String format;
-    
-    /**
-     * 下载内容类型
-     */
-    private String content;
-    
-    /**
-     * 最大并发数
-     */
-    @Builder.Default
-    private Integer maxConcurrency = 3;
-    
-    /**
-     * 最大重试次数
-     */
-    @Builder.Default
-    private Integer maxRetries = 3;
-    
-    /**
      * 连接超时时间（毫秒）
      */
-    @Builder.Default
-    private Long connectionTimeout = 30000L;
+    private Long connectionTimeout;
     
     /**
      * 读取超时时间（毫秒）
      */
-    @Builder.Default
-    private Long readTimeout = 60000L;
-    
-    /**
-     * 是否启用断点续传
-     */
-    @Builder.Default
-    private Boolean enableResume = true;
+    private Long readTimeout;
     
     /**
      * 进度更新间隔（毫秒）
      */
-    @Builder.Default
-    private Long progressUpdateInterval = 1000L;
+    private Long progressUpdateInterval;
     
     /**
-     * 临时文件后缀
+     * 最大重试次数
      */
-    @Builder.Default
-    private String tempFileSuffix = ".partial";
+    private Integer maxRetryAttempts;
     
     /**
-     * 线程数（兼容旧版本）
+     * 是否启用分段下载
      */
-    public Integer getThreads() {
-        return maxConcurrency;
+    private Boolean enableSegmentedDownload;
+    
+    /**
+     * 最大分段数量
+     */
+    private Integer maxSegments;
+    
+    /**
+     * 分段大小（字节）
+     */
+    private Long segmentSize;
+    
+    /**
+     * 用户代理
+     */
+    private String userAgent;
+    
+    /**
+     * 引用页面
+     */
+    private String referer;
+    
+    /**
+     * 额外的HTTP头
+     */
+    private java.util.Map<String, String> headers;
+    
+    /**
+     * 创建默认配置
+     * @return 默认配置
+     */
+    public static DownloadConfig createDefault() {
+        return DownloadConfig.builder()
+            .connectionTimeout(30000L)
+            .readTimeout(1800000L) // 30分钟
+            .progressUpdateInterval(1000L)
+            .maxRetryAttempts(3)
+            .enableSegmentedDownload(true)
+            .maxSegments(4)
+            .segmentSize(10 * 1024 * 1024L) // 10MB
+            .userAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+            .referer("https://www.bilibili.com/")
+            .build();
     }
     
     /**
-     * 队列大小（兼容旧版本）
+     * 从系统配置创建下载配置
+     * @param systemConfig 系统配置
+     * @return 下载配置
      */
-    public Integer getQueueSize() {
-        return maxConcurrency * 2; // 默认为并发数的2倍
-    }
-    
-    /**
-     * Builder扩展方法
-     */
-    public static class DownloadConfigBuilder {
-        public DownloadConfigBuilder maxConcurrentTasks(Integer maxConcurrentTasks) {
-            return maxConcurrency(maxConcurrentTasks);
-        }
-        
-        public DownloadConfigBuilder maxRetryAttempts(Integer maxRetryAttempts) {
-            return maxRetries(maxRetryAttempts);
-        }
-        
-        public DownloadConfigBuilder timeoutSeconds(int timeoutSeconds) {
-            return connectionTimeout((long) timeoutSeconds * 1000);
-        }
+    public static DownloadConfig fromSystemConfig(com.tbw.cut.config.DownloadConfig systemConfig) {
+        return DownloadConfig.builder()
+            .connectionTimeout((long) systemConfig.getTimeoutSeconds() * 1000)
+            .readTimeout((long) systemConfig.getTimeoutSeconds() * 1000)
+            .progressUpdateInterval(1000L)
+            .maxRetryAttempts(systemConfig.getMaxRetryAttempts())
+            .enableSegmentedDownload(systemConfig.isEnableSegmentedDownload())
+            .maxSegments(systemConfig.getMaxSegments())
+            .segmentSize(systemConfig.getDefaultSegmentSize())
+            .userAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+            .referer("https://www.bilibili.com/")
+            .build();
     }
 }

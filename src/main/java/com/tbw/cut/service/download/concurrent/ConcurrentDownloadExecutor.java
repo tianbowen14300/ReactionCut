@@ -187,32 +187,168 @@ public class ConcurrentDownloadExecutor {
             Long taskId = generateTaskId(part);
             log.info("生成的任务ID: {}, 对应数据库记录ID: {}", taskId, part.getDatabaseId());
             
-            // 获取视频总时长
-            long totalDuration = enhancedFFmpegUtil.getDurationByFFprobe(part.getUrl());
-            log.info("获取到视频总时长: {} 微秒", totalDuration);
+            // 检查是否是DASH格式需要合并
+            boolean isDashMerge = false;
+            String audioUrl = null;
+            String videoUrl = part.getUrl();
+            
+            if (part.getExtraParams() != null) {
+                Object isDashMergeObj = part.getExtraParams().get("isDashMerge");
+                if (isDashMergeObj instanceof Boolean && (Boolean) isDashMergeObj) {
+                    isDashMerge = true;
+                    audioUrl = (String) part.getExtraParams().get("audioUrl");
+                    videoUrl = (String) part.getExtraParams().get("videoUrl");
+                    log.info("检测到DASH格式，需要合并音视频流: videoUrl={}, audioUrl={}", 
+                            videoUrl.substring(0, Math.min(100, videoUrl.length())) + "...",
+                            audioUrl.substring(0, Math.min(100, audioUrl.length())) + "...");
+                }
+            }
             
             // 确定输出目录和文件名
             String outputDir = Paths.get(part.getOutputPath()).getParent().toString();
             String outputFileName = Paths.get(part.getOutputPath()).getFileName().toString();
             
-            log.info("开始下载: taskId={}, outputDir={}, outputFileName={}", taskId, outputDir, outputFileName);
+            log.info("开始下载: taskId={}, outputDir={}, outputFileName={}, isDashMerge={}", 
+                    taskId, outputDir, outputFileName, isDashMerge);
             
-            // 使用增强的FFmpeg工具进行下载，带进度回调
-            String downloadedPath = enhancedFFmpegUtil.downloadVideoToDirectoryWithProgress(
-                part.getUrl(), 
-                outputFileName, 
-                outputDir, 
-                totalDuration,
-                new com.tbw.cut.utils.FFmpegUtil.ProgressCallback() {
-                    @Override
-                    public void onProgress(int progress) {
-                        // 更新进度跟踪器 - 使用百分比计算字节数
-                        long estimatedCurrentBytes = totalDuration > 0 ? (totalDuration * progress / 100) : 0;
-                        log.info("FFmpeg进度回调: taskId={}, progress={}%, estimatedBytes={}", taskId, progress, estimatedCurrentBytes);
-                        progressTracker.updateProgress(taskId, estimatedCurrentBytes, totalDuration);
+            String downloadedPath;
+            long totalDuration = 0; // 声明在方法级别，用于进度跟踪
+            
+            if (isDashMerge && audioUrl != null) {
+                // DASH格式：下载并合并音视频流
+                log.info("使用DASH合并模式下载");
+                
+                // 创建下载配置
+                com.tbw.cut.service.download.model.DownloadConfig enhancedConfig = 
+                    com.tbw.cut.service.download.model.DownloadConfig.builder()
+                        .connectionTimeout(config.getConnectionTimeout())
+                        .readTimeout(config.getReadTimeout())
+                        .maxRetryAttempts(config.getMaxRetryAttempts())
+                        .progressUpdateInterval(1000L)
+                        .build();
+                
+                // 使用增强的FFmpeg工具进行DASH合并下载
+                com.tbw.cut.utils.EnhancedFFmpegUtil.DownloadResult result = 
+                    enhancedFFmpegUtil.downloadAndMergeDashStreams(
+                        videoUrl,
+                        audioUrl,
+                        part.getOutputPath(),
+                        enhancedConfig,
+                        new com.tbw.cut.utils.EnhancedFFmpegUtil.ProgressCallback() {
+                            private volatile long lastUpdateTime = 0;
+                            private volatile int lastProgress = -1;
+                            private static final long MIN_UPDATE_INTERVAL_MS = 1000; // 1秒最小间隔
+                            private static final int MIN_PROGRESS_CHANGE = 2; // 最小2%变化
+                            
+                            @Override
+                            public void onProgress(int progress, long currentBytes, long totalBytes) {
+                                long currentTime = System.currentTimeMillis();
+                                
+                                // 本地节流：检查时间间隔和进度变化
+                                boolean shouldUpdate = false;
+                                if (lastProgress == -1) {
+                                    // 首次更新
+                                    shouldUpdate = true;
+                                } else if (progress >= 100) {
+                                    // 完成时总是更新
+                                    shouldUpdate = true;
+                                } else if (currentTime - lastUpdateTime >= MIN_UPDATE_INTERVAL_MS) {
+                                    // 时间间隔达到
+                                    shouldUpdate = true;
+                                } else if (Math.abs(progress - lastProgress) >= MIN_PROGRESS_CHANGE) {
+                                    // 进度变化达到阈值
+                                    shouldUpdate = true;
+                                }
+                                
+                                if (shouldUpdate) {
+                                    lastUpdateTime = currentTime;
+                                    lastProgress = progress;
+                                    
+                                    log.debug("DASH合并进度回调: taskId={}, progress={}%, currentBytes={}, totalBytes={}", 
+                                             taskId, progress, currentBytes, totalBytes);
+                                    progressTracker.updateProgress(taskId, currentBytes, totalBytes);
+                                } else {
+                                    log.trace("DASH合并进度回调被节流: taskId={}, progress={}%, lastProgress={}, timeSinceLastUpdate={}ms", 
+                                             taskId, progress, lastProgress, currentTime - lastUpdateTime);
+                                }
+                            }
+                        },
+                        part.getBvid() // 传递BVID用于URL刷新
+                    );
+                
+                if (result.isSuccess()) {
+                    downloadedPath = result.getFilePath();
+                    // 对于DASH合并，使用文件大小作为totalDuration用于最终进度更新
+                    java.io.File downloadedFile = new java.io.File(downloadedPath);
+                    if (downloadedFile.exists()) {
+                        totalDuration = downloadedFile.length();
                     }
+                    log.info("DASH合并下载成功: {}", downloadedPath);
+                } else {
+                    log.error("DASH合并下载失败: {}", result.getMessage());
+                    return null;
                 }
-            );
+                
+            } else {
+                // 普通格式：直接下载
+                log.info("使用普通模式下载");
+                
+                // 获取视频总时长
+                totalDuration = enhancedFFmpegUtil.getDurationByFFprobe(part.getUrl());
+                log.info("获取到视频总时长: {} 微秒", totalDuration);
+                
+                // 创建final副本供lambda使用
+                final long finalTotalDuration = totalDuration;
+                
+                // 使用增强的FFmpeg工具进行下载，带进度回调和URL刷新
+                downloadedPath = enhancedFFmpegUtil.downloadVideoToDirectoryWithProgressAndRefresh(
+                    part.getUrl(), 
+                    outputFileName, 
+                    outputDir, 
+                    finalTotalDuration,
+                    new com.tbw.cut.utils.FFmpegUtil.ProgressCallback() {
+                        private volatile long lastUpdateTime = 0;
+                        private volatile int lastProgress = -1;
+                        private static final long MIN_UPDATE_INTERVAL_MS = 1000; // 1秒最小间隔
+                        private static final int MIN_PROGRESS_CHANGE = 2; // 最小2%变化
+                        
+                        @Override
+                        public void onProgress(int progress) {
+                            long currentTime = System.currentTimeMillis();
+                            
+                            // 本地节流：检查时间间隔和进度变化
+                            boolean shouldUpdate = false;
+                            if (lastProgress == -1) {
+                                // 首次更新
+                                shouldUpdate = true;
+                            } else if (progress >= 100) {
+                                // 完成时总是更新
+                                shouldUpdate = true;
+                            } else if (currentTime - lastUpdateTime >= MIN_UPDATE_INTERVAL_MS) {
+                                // 时间间隔达到
+                                shouldUpdate = true;
+                            } else if (Math.abs(progress - lastProgress) >= MIN_PROGRESS_CHANGE) {
+                                // 进度变化达到阈值
+                                shouldUpdate = true;
+                            }
+                            
+                            if (shouldUpdate) {
+                                lastUpdateTime = currentTime;
+                                lastProgress = progress;
+                                
+                                // 更新进度跟踪器 - 使用百分比计算字节数
+                                long estimatedCurrentBytes = finalTotalDuration > 0 ? (finalTotalDuration * progress / 100) : 0;
+                                log.debug("FFmpeg进度回调: taskId={}, progress={}%, estimatedBytes={}", taskId, progress, estimatedCurrentBytes);
+                                progressTracker.updateProgress(taskId, estimatedCurrentBytes, finalTotalDuration);
+                            } else {
+                                log.trace("FFmpeg进度回调被节流: taskId={}, progress={}%, lastProgress={}, timeSinceLastUpdate={}ms", 
+                                         taskId, progress, lastProgress, currentTime - lastUpdateTime);
+                            }
+                        }
+                    },
+                    part.getBvid() // 传递BVID用于URL刷新
+                );
+            }
             
             if (downloadedPath != null) {
                 // 验证下载文件

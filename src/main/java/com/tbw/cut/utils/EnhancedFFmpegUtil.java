@@ -2,6 +2,8 @@ package com.tbw.cut.utils;
 
 import com.tbw.cut.service.download.model.DownloadConfig;
 import com.tbw.cut.service.download.retry.RetryManager;
+import com.tbw.cut.service.VideoUrlRefreshService;
+import com.tbw.cut.bilibili.BilibiliApiClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -36,6 +38,12 @@ public class EnhancedFFmpegUtil {
     
     @Autowired
     private RetryManager retryManager;
+    
+    @Autowired(required = false)
+    private BilibiliApiClient bilibiliApiClient;
+    
+    @Autowired(required = false)
+    private VideoUrlRefreshService videoUrlRefreshService;
     
     @PostConstruct
     public void init() {
@@ -82,6 +90,15 @@ public class EnhancedFFmpegUtil {
         return retryManager.executeWithRetry(() -> {
             return executeGetDuration(videoUrl);
         }, "get-duration-" + videoUrl.hashCode()).join();
+    }
+    
+    /**
+     * 使用FFprobe获取视频时长（兼容方法）
+     * @param videoUrl 视频URL
+     * @return 视频时长（微秒）
+     */
+    public long getDurationByFFprobe(String videoUrl) {
+        return getVideoDuration(videoUrl);
     }
     
     /**
@@ -132,6 +149,113 @@ public class EnhancedFFmpegUtil {
         return retryManager.executeWithRetry(() -> {
             return executeDownload(videoUrl, outputPath, config, progressCallback);
         }, "download-" + outputPath.hashCode()).join();
+    }
+    
+    /**
+     * 下载视频（带进度跟踪和断点续传支持，包含URL刷新机制）
+     * @param videoUrl 视频URL
+     * @param outputPath 输出路径
+     * @param config 下载配置
+     * @param progressCallback 进度回调
+     * @param bvid 视频BVID（用于URL刷新）
+     * @return 下载结果
+     */
+    public DownloadResult downloadVideoWithUrlRefresh(String videoUrl, String outputPath, 
+                                                    DownloadConfig config, ProgressCallback progressCallback, String bvid) {
+        
+        return retryManager.executeWithRetry(() -> {
+            try {
+                return executeDownloadWithUrlRefresh(videoUrl, outputPath, config, progressCallback, bvid);
+            } catch (RetryManager.UrlExpiredException e) {
+                // 重新抛出作为运行时异常，让重试机制处理
+                throw new RuntimeException(e);
+            }
+        }, "download-with-refresh-" + outputPath.hashCode()).join();
+    }
+    
+    /**
+     * 执行带URL刷新的视频下载
+     * @param videoUrl 视频URL
+     * @param outputPath 输出路径
+     * @param config 下载配置
+     * @param progressCallback 进度回调
+     * @param bvid 视频BVID
+     * @return 下载结果
+     * @throws RetryManager.UrlExpiredException 当URL过期需要刷新时
+     */
+    private DownloadResult executeDownloadWithUrlRefresh(String videoUrl, String outputPath, 
+                                                       DownloadConfig config, ProgressCallback progressCallback, String bvid) 
+                                                       throws RetryManager.UrlExpiredException {
+        
+        String currentUrl = videoUrl;
+        
+        // 检查URL是否已过期
+        if (videoUrlRefreshService != null && videoUrlRefreshService.isUrlExpired(currentUrl)) {
+            log.warn("Video URL is expired, attempting to refresh: {}", 
+                    currentUrl.substring(0, Math.min(100, currentUrl.length())) + "...");
+            
+            String refreshedUrl = videoUrlRefreshService.smartRefreshUrl(currentUrl, bvid);
+            if (refreshedUrl != null) {
+                currentUrl = refreshedUrl;
+                log.info("Successfully refreshed expired URL");
+            } else {
+                log.error("Failed to refresh expired URL, proceeding with original URL");
+            }
+        }
+        
+        List<String> command = buildDownloadCommand(currentUrl, outputPath, config, 0);
+        
+        try {
+            ProcessResult result = executeCommandWithProgress(command, config, progressCallback);
+            
+            if (result.isSuccess()) {
+                File outputFile = new File(outputPath);
+                if (outputFile.exists() && outputFile.length() > 0) {
+                    return DownloadResult.success(outputPath, outputFile.length());
+                } else {
+                    return DownloadResult.failure("Output file not found or empty");
+                }
+            } else {
+                // 检查是否是403错误（可能是URL过期）
+                String errorOutput = result.getOutput();
+                if (errorOutput != null && errorOutput.contains("403")) {
+                    log.warn("Detected 403 error, attempting URL refresh");
+                    
+                    if (videoUrlRefreshService != null && bvid != null) {
+                        String refreshedUrl = videoUrlRefreshService.smartRefreshUrl(currentUrl, bvid);
+                        if (refreshedUrl != null && !refreshedUrl.equals(currentUrl)) {
+                            log.info("URL refreshed due to 403 error, retrying download");
+                            // 抛出特殊异常，让重试机制处理
+                            throw new RetryManager.UrlExpiredException(currentUrl, bvid, 
+                                "URL expired with 403 error, refreshed URL available");
+                        }
+                    }
+                }
+                
+                return DownloadResult.failure("Download failed with exit code: " + result.getExitCode() + 
+                                            ", output: " + errorOutput);
+            }
+            
+        } catch (RetryManager.UrlExpiredException e) {
+            // 重新抛出URL过期异常，让重试机制处理
+            throw e;
+        } catch (Exception e) {
+            log.error("Download execution failed", e);
+            
+            // 检查异常消息中是否包含403错误
+            String message = e.getMessage();
+            if (message != null && message.contains("403")) {
+                if (videoUrlRefreshService != null && bvid != null) {
+                    String refreshedUrl = videoUrlRefreshService.smartRefreshUrl(currentUrl, bvid);
+                    if (refreshedUrl != null && !refreshedUrl.equals(currentUrl)) {
+                        throw new RetryManager.UrlExpiredException(currentUrl, bvid, 
+                            "403 error detected in exception: " + message);
+                    }
+                }
+            }
+            
+            return DownloadResult.failure("Download execution failed: " + e.getMessage());
+        }
     }
     
     /**
@@ -221,17 +345,35 @@ public class EnhancedFFmpegUtil {
     }
     
     /**
-     * 构建获取时长的命令
+     * 构建获取时长的命令（增强版，支持完整的HTTP请求头）
      * @param videoUrl 视频URL
      * @return 命令列表
      */
     private List<String> buildDurationCommand(String videoUrl) {
         List<String> command = new ArrayList<>();
         command.add(ffprobePath);
+        
+        // 增强的User-Agent
         command.add("-user_agent");
-        command.add("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36");
+        command.add("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+        
+        // 构建完整的HTTP请求头
+        StringBuilder headers = new StringBuilder();
+        headers.append("Referer: https://www.bilibili.com/\\r\\n");
+        headers.append("Origin: https://www.bilibili.com\\r\\n");
+        headers.append("Accept: */*\\r\\n");
+        headers.append("Accept-Language: zh-CN,zh;q=0.9,en;q=0.8\\r\\n");
+        headers.append("Connection: keep-alive\\r\\n");
+        
+        // 添加Cookie认证信息
+        String cookie = getCookieFromBilibiliApiClient();
+        if (cookie != null && !cookie.isEmpty()) {
+            headers.append("Cookie: ").append(cookie).append("\\r\\n");
+        }
+        
         command.add("-headers");
-        command.add("Referer: https://www.bilibili.com/");
+        command.add(headers.toString());
+        
         command.add("-timeout");
         command.add("30000000"); // 30秒超时
         command.add("-v");
@@ -243,11 +385,12 @@ public class EnhancedFFmpegUtil {
         command.add("-i");
         command.add(videoUrl);
         
+        log.debug("Built FFprobe duration command with enhanced headers");
         return command;
     }
     
     /**
-     * 构建下载命令
+     * 构建下载命令（增强版，支持完整的HTTP请求头）
      * @param videoUrl 视频URL
      * @param outputPath 输出路径
      * @param config 下载配置
@@ -259,11 +402,36 @@ public class EnhancedFFmpegUtil {
         List<String> command = new ArrayList<>();
         command.add(ffmpegPath);
         
-        // 网络参数
+        // 增强的User-Agent
         command.add("-user_agent");
         command.add("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+        
+        // 构建完整的HTTP请求头
+        StringBuilder headers = new StringBuilder();
+        headers.append("Referer: https://www.bilibili.com/\\r\\n");
+        headers.append("Origin: https://www.bilibili.com\\r\\n");
+        headers.append("Accept: */*\\r\\n");
+        headers.append("Accept-Language: zh-CN,zh;q=0.9,en;q=0.8\\r\\n");
+        headers.append("Accept-Encoding: identity\\r\\n"); // 避免压缩问题
+        headers.append("Connection: keep-alive\\r\\n");
+        headers.append("Sec-Fetch-Dest: video\\r\\n");
+        headers.append("Sec-Fetch-Mode: cors\\r\\n");
+        headers.append("Sec-Fetch-Site: cross-site\\r\\n");
+        headers.append("Sec-Ch-Ua: \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\"\\r\\n");
+        headers.append("Sec-Ch-Ua-Mobile: ?0\\r\\n");
+        headers.append("Sec-Ch-Ua-Platform: \"macOS\"\\r\\n");
+        
+        // 添加Cookie认证信息
+        String cookie = getCookieFromBilibiliApiClient();
+        if (cookie != null && !cookie.isEmpty()) {
+            headers.append("Cookie: ").append(cookie).append("\\r\\n");
+            log.debug("Added Cookie to download request: {}", cookie.substring(0, Math.min(50, cookie.length())) + "...");
+        } else {
+            log.warn("No Cookie available for download request, this may cause 403 errors");
+        }
+        
         command.add("-headers");
-        command.add("Referer: https://www.bilibili.com/");
+        command.add(headers.toString());
         
         // 超时和重连参数
         if (config.getConnectionTimeout() != null) {
@@ -292,7 +460,31 @@ public class EnhancedFFmpegUtil {
         command.add("pipe:1"); // 进度输出到标准输出
         command.add(outputPath);
         
+        log.debug("Built FFmpeg download command with enhanced headers");
         return command;
+    }
+    
+    /**
+     * 从BilibiliApiClient获取Cookie认证信息
+     * @return Cookie字符串，如果获取失败返回null
+     */
+    private String getCookieFromBilibiliApiClient() {
+        try {
+            if (bilibiliApiClient != null) {
+                String cookie = bilibiliApiClient.extractCookieFromLoginInfo();
+                if (cookie != null && !cookie.trim().isEmpty()) {
+                    log.debug("Successfully extracted Cookie from BilibiliApiClient");
+                    return cookie;
+                } else {
+                    log.warn("BilibiliApiClient returned empty Cookie");
+                }
+            } else {
+                log.warn("BilibiliApiClient is not available");
+            }
+        } catch (Exception e) {
+            log.warn("Failed to get Cookie from BilibiliApiClient: {}", e.getMessage());
+        }
+        return null;
     }
     
     /**
@@ -422,12 +614,207 @@ public class EnhancedFFmpegUtil {
     }
     
     /**
-     * 兼容方法：获取视频时长（使用FFprobe）
-     * @param videoUrl 视频URL
-     * @return 视频时长（微秒）
+     * 下载并合并DASH格式的音视频流
+     * @param videoUrl 视频流URL
+     * @param audioUrl 音频流URL
+     * @param outputPath 输出路径
+     * @param config 下载配置
+     * @param progressCallback 进度回调
+     * @param bvid 视频BVID（用于URL刷新）
+     * @return 下载结果
      */
-    public long getDurationByFFprobe(String videoUrl) {
-        return getVideoDuration(videoUrl);
+    public DownloadResult downloadAndMergeDashStreams(String videoUrl, String audioUrl, String outputPath, 
+                                                    DownloadConfig config, ProgressCallback progressCallback, String bvid) {
+        
+        return retryManager.executeWithRetry(() -> {
+            try {
+                return executeDownloadAndMergeDash(videoUrl, audioUrl, outputPath, config, progressCallback, bvid);
+            } catch (RetryManager.UrlExpiredException e) {
+                // 重新抛出作为运行时异常，让重试机制处理
+                throw new RuntimeException(e);
+            }
+        }, "dash-merge-" + outputPath.hashCode()).join();
+    }
+    
+    /**
+     * 执行DASH音视频流下载和合并
+     */
+    private DownloadResult executeDownloadAndMergeDash(String videoUrl, String audioUrl, String outputPath, 
+                                                     DownloadConfig config, ProgressCallback progressCallback, String bvid) 
+                                                     throws RetryManager.UrlExpiredException {
+        
+        // 创建临时文件路径
+        String tempVideoPath = tempDir + "/video_" + System.currentTimeMillis() + ".m4s";
+        String tempAudioPath = tempDir + "/audio_" + System.currentTimeMillis() + ".m4s";
+        
+        try {
+            log.info("开始下载DASH视频流到: {}", tempVideoPath);
+            
+            // 检查并刷新URL（如果需要）
+            String currentVideoUrl = videoUrl;
+            String currentAudioUrl = audioUrl;
+            
+            if (videoUrlRefreshService != null && videoUrlRefreshService.isUrlExpired(videoUrl)) {
+                log.warn("视频流URL已过期，尝试刷新");
+                String refreshedVideoUrl = videoUrlRefreshService.smartRefreshUrl(videoUrl, bvid);
+                if (refreshedVideoUrl != null) {
+                    currentVideoUrl = refreshedVideoUrl;
+                    log.info("视频流URL刷新成功");
+                }
+            }
+            
+            if (videoUrlRefreshService != null && videoUrlRefreshService.isUrlExpired(audioUrl)) {
+                log.warn("音频流URL已过期，尝试刷新");
+                String refreshedAudioUrl = videoUrlRefreshService.smartRefreshUrl(audioUrl, bvid);
+                if (refreshedAudioUrl != null) {
+                    currentAudioUrl = refreshedAudioUrl;
+                    log.info("音频流URL刷新成功");
+                }
+            }
+            
+            // 下载视频流
+            List<String> videoCommand = buildDownloadCommand(currentVideoUrl, tempVideoPath, config, 0);
+            ProcessResult videoResult = executeCommandWithProgress(videoCommand, config, 
+                (percentage, currentBytes, totalBytes) -> {
+                    // 视频下载占总进度的60%
+                    if (progressCallback != null) {
+                        progressCallback.onProgress(percentage * 60 / 100, currentBytes, totalBytes);
+                    }
+                });
+            
+            if (!videoResult.isSuccess()) {
+                // 检查是否是403错误
+                if (videoResult.getOutput() != null && videoResult.getOutput().contains("403")) {
+                    throw new RetryManager.UrlExpiredException(currentVideoUrl, bvid, 
+                        "视频流下载失败，403错误: " + videoResult.getOutput());
+                }
+                return DownloadResult.failure("视频流下载失败: " + videoResult.getOutput());
+            }
+            
+            log.info("视频流下载完成，开始下载音频流到: {}", tempAudioPath);
+            
+            // 下载音频流
+            List<String> audioCommand = buildDownloadCommand(currentAudioUrl, tempAudioPath, config, 0);
+            ProcessResult audioResult = executeCommandWithProgress(audioCommand, config, 
+                (percentage, currentBytes, totalBytes) -> {
+                    // 音频下载占总进度的20%，从60%开始
+                    if (progressCallback != null) {
+                        progressCallback.onProgress(60 + percentage * 20 / 100, currentBytes, totalBytes);
+                    }
+                });
+            
+            if (!audioResult.isSuccess()) {
+                // 检查是否是403错误
+                if (audioResult.getOutput() != null && audioResult.getOutput().contains("403")) {
+                    throw new RetryManager.UrlExpiredException(currentAudioUrl, bvid, 
+                        "音频流下载失败，403错误: " + audioResult.getOutput());
+                }
+                return DownloadResult.failure("音频流下载失败: " + audioResult.getOutput());
+            }
+            
+            log.info("音频流下载完成，开始合并音视频流");
+            
+            // 合并音视频流
+            List<String> mergeCommand = buildMergeCommand(tempVideoPath, tempAudioPath, outputPath);
+            ProcessResult mergeResult = executeCommandWithProgress(mergeCommand, config, 
+                (percentage, currentBytes, totalBytes) -> {
+                    // 合并占总进度的20%，从80%开始
+                    if (progressCallback != null) {
+                        progressCallback.onProgress(80 + percentage * 20 / 100, currentBytes, totalBytes);
+                    }
+                });
+            
+            if (mergeResult.isSuccess()) {
+                File outputFile = new File(outputPath);
+                if (outputFile.exists() && outputFile.length() > 0) {
+                    log.info("DASH音视频流合并成功: {}", outputPath);
+                    
+                    // 确保最终进度为100%
+                    if (progressCallback != null) {
+                        progressCallback.onProgress(100, outputFile.length(), outputFile.length());
+                    }
+                    
+                    return DownloadResult.success(outputPath, outputFile.length());
+                } else {
+                    return DownloadResult.failure("合并后的文件不存在或为空");
+                }
+            } else {
+                return DownloadResult.failure("音视频流合并失败: " + mergeResult.getOutput());
+            }
+            
+        } catch (RetryManager.UrlExpiredException e) {
+            // 重新抛出URL过期异常
+            throw e;
+        } catch (Exception e) {
+            log.error("DASH音视频流下载合并过程中发生异常", e);
+            
+            // 检查异常消息中是否包含403错误
+            String message = e.getMessage();
+            if (message != null && message.contains("403")) {
+                throw new RetryManager.UrlExpiredException(videoUrl, bvid, 
+                    "DASH下载过程中检测到403错误: " + message);
+            }
+            
+            return DownloadResult.failure("DASH下载合并失败: " + e.getMessage());
+        } finally {
+            // 清理临时文件
+            cleanupTempFile(tempVideoPath);
+            cleanupTempFile(tempAudioPath);
+        }
+    }
+    
+    /**
+     * 构建音视频合并命令
+     */
+    private List<String> buildMergeCommand(String videoPath, String audioPath, String outputPath) {
+        List<String> command = new ArrayList<>();
+        command.add(ffmpegPath);
+        
+        // 输入视频流
+        command.add("-i");
+        command.add(videoPath);
+        
+        // 输入音频流
+        command.add("-i");
+        command.add(audioPath);
+        
+        // 编码设置：直接复制流，不重新编码
+        command.add("-c:v");
+        command.add("copy");
+        command.add("-c:a");
+        command.add("copy");
+        
+        // 覆盖输出文件
+        command.add("-y");
+        
+        // 进度输出
+        command.add("-progress");
+        command.add("pipe:1");
+        
+        // 输出文件
+        command.add(outputPath);
+        
+        log.debug("构建FFmpeg合并命令: {}", String.join(" ", command));
+        return command;
+    }
+    
+    /**
+     * 清理临时文件
+     */
+    private void cleanupTempFile(String filePath) {
+        try {
+            File tempFile = new File(filePath);
+            if (tempFile.exists()) {
+                boolean deleted = tempFile.delete();
+                if (deleted) {
+                    log.debug("清理临时文件: {}", filePath);
+                } else {
+                    log.warn("无法删除临时文件: {}", filePath);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("清理临时文件时发生异常: {}", filePath, e);
+        }
     }
     
     /**
@@ -465,6 +852,46 @@ public class EnhancedFFmpegUtil {
         }
         
         DownloadResult result = downloadVideo(videoUrl, outputPath, config, enhancedCallback);
+        
+        return result.isSuccess() ? result.getFilePath() : null;
+    }
+    
+    /**
+     * 兼容方法：下载视频到指定目录（带进度跟踪和URL刷新）
+     * @param videoUrl 视频URL
+     * @param outputFileName 输出文件名
+     * @param outputDirectory 输出目录
+     * @param totalDuration 总时长（微秒）
+     * @param progressCallback 进度回调
+     * @param bvid 视频BVID（用于URL刷新）
+     * @return 输出文件路径，失败返回null
+     */
+    public String downloadVideoToDirectoryWithProgressAndRefresh(String videoUrl, String outputFileName, 
+                                                               String outputDirectory, long totalDuration, 
+                                                               FFmpegUtil.ProgressCallback progressCallback, String bvid) {
+        
+        // 确保输出目录存在
+        createDirectory(outputDirectory);
+        
+        String outputPath = outputDirectory + "/" + outputFileName;
+        
+        // 创建配置
+        DownloadConfig config = DownloadConfig.builder()
+            .connectionTimeout(30000L)
+            .readTimeout(1800000L) // 30分钟
+            .progressUpdateInterval(1000L)
+            .build();
+        
+        // 转换进度回调
+        ProgressCallback enhancedCallback = null;
+        if (progressCallback != null) {
+            enhancedCallback = (percentage, currentBytes, totalBytes) -> {
+                // 调用原始的进度回调接口
+                progressCallback.onProgress(percentage);
+            };
+        }
+        
+        DownloadResult result = downloadVideoWithUrlRefresh(videoUrl, outputPath, config, enhancedCallback, bvid);
         
         return result.isSuccess() ? result.getFilePath() : null;
     }

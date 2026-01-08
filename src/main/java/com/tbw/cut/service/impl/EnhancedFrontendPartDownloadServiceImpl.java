@@ -39,6 +39,9 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
     @Autowired
     private PartDownloadService partDownloadService;
     
+    @Autowired
+    private com.tbw.cut.service.download.queue.VideoDownloadQueueManager videoDownloadQueueManager;
+    
     // 分辨率映射表
     private static final Map<String, String> RESOLUTION_LABEL_MAP;
     
@@ -60,8 +63,10 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
     
     @Override
     public void addDownloadTask(DownloadTask downloadTask) {
-        // 异步执行下载任务
-        CompletableFuture.runAsync(() -> executeDownload(downloadTask));
+        log.info("=== 增强下载服务收到任务: taskId={}, bvid={} ===", 
+            downloadTask.getId(), downloadTask.getBvid());
+        // 直接执行下载任务，使用VideoDownloadQueueManager进行并发控制
+        executeDownload(downloadTask);
     }
     
     @Override
@@ -97,9 +102,23 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
             // 创建分P下载记录
             List<Long> partTaskIds = createPartDownloadRecords(videoParts, title, bvid, aid, config);
             
-            // 使用增强下载管理器执行并发下载
-            CompletableFuture<DownloadResult> downloadFuture = enhancedDownloadManager
-                .startDownload(videoUrl, videoParts, downloadConfig);
+            // 创建视频下载请求
+            com.tbw.cut.service.download.model.VideoDownloadRequest videoRequest = 
+                com.tbw.cut.service.download.model.VideoDownloadRequest.builder()
+                    .videoUrl(videoUrl)
+                    .videoTitle(title)
+                    .parts(videoParts)
+                    .config(downloadConfig)
+                    .estimatedFileSize(estimateTotalSize(videoParts))
+                    .enableSegmentedDownload(downloadConfig.getEnableSegmentedDownload())
+                    .outputDirectory(downloadPath.toString())
+                    .extraParams(createExtraParams(bvid, aid))
+                    .build();
+            
+            // 使用VideoDownloadQueueManager提交下载任务，实现视频级别并发控制
+            log.info("=== 通过VideoDownloadQueueManager提交下载任务: {} ===", title);
+            CompletableFuture<DownloadResult> downloadFuture = videoDownloadQueueManager
+                .submitVideoDownload(videoRequest);
             
             // 处理下载结果
             downloadFuture.thenAccept(result -> {
@@ -120,34 +139,40 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
      */
     private DownloadConfig createDownloadConfig(Map<String, Object> config) {
         DownloadConfig.DownloadConfigBuilder builder = DownloadConfig.builder()
-            .maxConcurrentTasks(3)
+            .connectionTimeout(30000L)
+            .readTimeout(300000L)
             .maxRetryAttempts(3)
-            .timeoutSeconds(300)
-            .enableResume(true);
+            .enableSegmentedDownload(true);
         
         if (config != null) {
-            // 设置分辨率
-            if (config.containsKey("resolution")) {
-                builder.resolution(config.get("resolution").toString());
-            }
-            
-            // 设置格式
-            if (config.containsKey("format")) {
-                builder.format(config.get("format").toString());
-            }
-            
-            // 设置编码
-            if (config.containsKey("codec")) {
-                builder.codec(config.get("codec").toString());
-            }
-            
-            // 设置并发数
-            if (config.containsKey("maxConcurrent")) {
+            // 设置超时时间
+            if (config.containsKey("timeout")) {
                 try {
-                    int maxConcurrent = Integer.parseInt(config.get("maxConcurrent").toString());
-                    builder.maxConcurrentTasks(maxConcurrent);
+                    int timeout = Integer.parseInt(config.get("timeout").toString());
+                    builder.connectionTimeout((long) timeout * 1000);
+                    builder.readTimeout((long) timeout * 1000);
                 } catch (NumberFormatException e) {
-                    log.warn("无效的并发数配置: {}", config.get("maxConcurrent"));
+                    log.warn("无效的超时配置: {}", config.get("timeout"));
+                }
+            }
+            
+            // 设置重试次数
+            if (config.containsKey("maxRetry")) {
+                try {
+                    int maxRetry = Integer.parseInt(config.get("maxRetry").toString());
+                    builder.maxRetryAttempts(maxRetry);
+                } catch (NumberFormatException e) {
+                    log.warn("无效的重试次数配置: {}", config.get("maxRetry"));
+                }
+            }
+            
+            // 设置分段下载
+            if (config.containsKey("enableSegmented")) {
+                try {
+                    boolean enableSegmented = Boolean.parseBoolean(config.get("enableSegmented").toString());
+                    builder.enableSegmentedDownload(enableSegmented);
+                } catch (Exception e) {
+                    log.warn("无效的分段下载配置: {}", config.get("enableSegmented"));
                 }
             }
         }
@@ -201,18 +226,47 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
                     String outputFileName = (i + 1) + ".mp4";
                     String outputPath = downloadPath.resolve(outputFileName).toString();
                     
-                    VideoPart videoPart = VideoPart.builder()
+                    VideoPart.VideoPartBuilder videoPartBuilder = VideoPart.builder()
                         .cid(cid)
+                        .bvid(bvid)
                         .title(partTitle != null ? partTitle : "Part " + (i + 1))
-                        .url(streamUrl)
+                        .streamUrl(streamUrl)
                         .outputPath(outputPath)
                         .outputFileName(outputFileName)
-                        .partIndex(i + 1)
-                        .totalParts(parts.size())
-                        .build();
+                        .partNumber(i + 1);
                     
+                    // 检查是否是DASH格式需要合并
+                    if (streamUrl.startsWith("DASH_MERGE:")) {
+                        // 解析DASH URL
+                        String[] urlParts = streamUrl.substring("DASH_MERGE:".length()).split("\\|AUDIO:");
+                        if (urlParts.length == 2) {
+                            String videoUrl = urlParts[0];
+                            String audioUrl = urlParts[1];
+                            
+                            // 设置DASH相关信息
+                            videoPartBuilder.streamUrl(videoUrl); // 主URL设为视频流
+                            
+                            // 使用extraParams存储音频URL和合并标记
+                            Map<String, Object> extraParams = new java.util.HashMap<>();
+                            extraParams.put("isDashMerge", true);
+                            extraParams.put("audioUrl", audioUrl);
+                            extraParams.put("videoUrl", videoUrl);
+                            videoPartBuilder.extraParams(extraParams);
+                            
+                            log.info("创建DASH合并VideoPart: cid={}, videoUrl={}, audioUrl={}", 
+                                    cid, videoUrl.substring(0, Math.min(100, videoUrl.length())) + "...",
+                                    audioUrl.substring(0, Math.min(100, audioUrl.length())) + "...");
+                        } else {
+                            log.error("DASH URL格式错误: {}", streamUrl);
+                            continue;
+                        }
+                    } else {
+                        log.info("创建普通VideoPart: cid={}, title={}, url={}", cid, partTitle, 
+                                streamUrl.substring(0, Math.min(100, streamUrl.length())) + "...");
+                    }
+                    
+                    VideoPart videoPart = videoPartBuilder.build();
                     videoParts.add(videoPart);
-                    log.info("创建VideoPart: cid={}, title={}, url={}", cid, partTitle, streamUrl);
                 } else {
                     log.error("无法获取分P视频流URL: cid={}", cid);
                 }
@@ -271,6 +325,28 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
         }
         
         return partTaskIds;
+    }
+    
+    /**
+     * 创建额外参数
+     */
+    private Map<String, Object> createExtraParams(String bvid, String aid) {
+        Map<String, Object> extraParams = new java.util.HashMap<>();
+        if (bvid != null) {
+            extraParams.put("bvid", bvid);
+        }
+        if (aid != null) {
+            extraParams.put("aid", aid);
+        }
+        return extraParams;
+    }
+    
+    /**
+     * 估算视频总大小
+     */
+    private long estimateTotalSize(List<VideoPart> videoParts) {
+        // 简单估算：每个分P大约100MB
+        return videoParts.size() * 100L * 1024 * 1024;
     }
     
     /**
@@ -352,7 +428,7 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
             }
         }
         
-        // 处理格式
+        // 处理格式 - 优先使用包含音频的格式
         if (config.containsKey("format")) {
             Object formatObj = config.get("format");
             if (formatObj != null) {
@@ -363,6 +439,10 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
                     log.info("设置格式参数 fnval={}", fnval);
                 }
             }
+        } else {
+            // 默认优先使用MP4格式（包含音频），如果不可用再使用DASH
+            bilibiliParams.put("fnval", "1"); // MP4格式
+            log.info("使用默认MP4格式 fnval=1");
         }
         
         // 处理编码格式
@@ -388,18 +468,18 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
     private String convertFormatToFnval(String format) {
         switch (format.toLowerCase()) {
             case "mp4":
-                return "1";
+                return "1";  // MP4格式，包含音频
             case "flv":
-                return "0";
+                return "0";  // FLV格式（已下线）
             case "dash":
-                return "16";
+                return "16"; // DASH格式，需要合并音视频
             default:
-                return "16"; // 默认DASH
+                return "1";  // 默认MP4格式，确保有音频
         }
     }
     
     /**
-     * 获取实际的视频流URL
+     * 获取实际的视频流URL（支持DASH格式的音视频合并）
      */
     private String getActualVideoStreamUrl(String bvid, String aid, String cid, Map<String, String> params) {
         try {
@@ -428,34 +508,15 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
                         com.alibaba.fastjson.JSONObject firstDurl = durls.getJSONObject(0);
                         if (firstDurl.containsKey("url")) {
                             String url = firstDurl.getString("url");
-                            log.info("获取到MP4/FLV视频流URL: {}", url);
+                            log.info("获取到包含音频的MP4/FLV视频流URL: {}", url);
                             return url;
                         }
                     }
                 }
                 
-                // 如果没有durl，再尝试DASH格式
+                // 如果没有durl，处理DASH格式（需要合并音视频流）
                 if (playInfo.containsKey("dash")) {
-                    com.alibaba.fastjson.JSONObject dash = playInfo.getJSONObject("dash");
-                    if (dash != null && dash.containsKey("video")) {
-                        com.alibaba.fastjson.JSONArray videos = dash.getJSONArray("video");
-                        if (videos != null && videos.size() > 0) {
-                            // 根据参数选择合适的视频流
-                            com.alibaba.fastjson.JSONObject selectedVideo = selectBestVideoStream(videos, qn, codec);
-                            
-                            if (selectedVideo != null) {
-                                String baseUrl = selectedVideo.getString("baseUrl");
-                                if (baseUrl == null) {
-                                    baseUrl = selectedVideo.getString("base_url");
-                                }
-                                
-                                if (baseUrl != null) {
-                                    log.info("获取到DASH视频流URL: {}", baseUrl);
-                                    return baseUrl;
-                                }
-                            }
-                        }
-                    }
+                    return handleDashFormat(playInfo, qn, codec, bvid, cid);
                 }
             }
             
@@ -465,6 +526,104 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
             log.error("获取视频流URL时发生异常", e);
             return null;
         }
+    }
+    
+    /**
+     * 处理DASH格式，合并音视频流
+     */
+    private String handleDashFormat(com.alibaba.fastjson.JSONObject playInfo, String qn, String codec, String bvid, String cid) {
+        try {
+            com.alibaba.fastjson.JSONObject dash = playInfo.getJSONObject("dash");
+            if (dash == null) {
+                log.error("DASH对象为空");
+                return null;
+            }
+            
+            // 获取视频流
+            String videoUrl = null;
+            if (dash.containsKey("video")) {
+                com.alibaba.fastjson.JSONArray videos = dash.getJSONArray("video");
+                if (videos != null && videos.size() > 0) {
+                    com.alibaba.fastjson.JSONObject selectedVideo = selectBestVideoStream(videos, qn, codec);
+                    if (selectedVideo != null) {
+                        videoUrl = selectedVideo.getString("baseUrl");
+                        if (videoUrl == null) {
+                            videoUrl = selectedVideo.getString("base_url");
+                        }
+                        log.info("获取到DASH视频流URL: {}", videoUrl);
+                    }
+                }
+            }
+            
+            // 获取音频流
+            String audioUrl = null;
+            if (dash.containsKey("audio")) {
+                com.alibaba.fastjson.JSONArray audios = dash.getJSONArray("audio");
+                if (audios != null && audios.size() > 0) {
+                    // 选择最佳音频流（通常选择第一个或最高质量的）
+                    com.alibaba.fastjson.JSONObject selectedAudio = selectBestAudioStream(audios);
+                    if (selectedAudio != null) {
+                        audioUrl = selectedAudio.getString("baseUrl");
+                        if (audioUrl == null) {
+                            audioUrl = selectedAudio.getString("base_url");
+                        }
+                        log.info("获取到DASH音频流URL: {}", audioUrl);
+                    }
+                }
+            }
+            
+            // 如果同时有音视频流，返回特殊格式的URL用于后续处理
+            if (videoUrl != null && audioUrl != null) {
+                // 使用特殊格式标记这是需要合并的DASH流
+                String dashUrl = "DASH_MERGE:" + videoUrl + "|AUDIO:" + audioUrl;
+                log.info("获取到DASH音视频流，需要合并处理");
+                return dashUrl;
+            } else if (videoUrl != null) {
+                // 只有视频流，没有音频（可能是无音轨视频）
+                log.warn("只获取到视频流，没有音频流，视频可能无音轨");
+                return videoUrl;
+            } else {
+                log.error("无法获取DASH视频流");
+                return null;
+            }
+            
+        } catch (Exception e) {
+            log.error("处理DASH格式时发生异常", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 选择最佳音频流
+     */
+    private com.alibaba.fastjson.JSONObject selectBestAudioStream(com.alibaba.fastjson.JSONArray audios) {
+        if (audios == null || audios.size() == 0) {
+            return null;
+        }
+        
+        // 优先选择高质量音频流
+        com.alibaba.fastjson.JSONObject bestAudio = null;
+        int bestBandwidth = 0;
+        
+        for (int i = 0; i < audios.size(); i++) {
+            com.alibaba.fastjson.JSONObject audio = audios.getJSONObject(i);
+            Integer bandwidth = audio.getInteger("bandwidth");
+            
+            if (bandwidth != null && bandwidth > bestBandwidth) {
+                bestBandwidth = bandwidth;
+                bestAudio = audio;
+            }
+        }
+        
+        // 如果没有找到带宽信息，使用第一个
+        if (bestAudio == null) {
+            bestAudio = audios.getJSONObject(0);
+        }
+        
+        log.info("选择音频流: id={}, bandwidth={}", 
+                bestAudio.getString("id"), bestAudio.getInteger("bandwidth"));
+        
+        return bestAudio;
     }
     
     /**
