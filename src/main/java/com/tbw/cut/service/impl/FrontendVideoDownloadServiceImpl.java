@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
@@ -50,6 +51,7 @@ public class FrontendVideoDownloadServiceImpl implements FrontendVideoDownloadSe
     
     /**
      * 处理前端part下载请求，使用队列管理
+     * 修复：同步创建数据库记录，返回真实的数据库ID
      */
     private Long handleFrontendPartDownloadWithQueue(Map<String, Object> requestData) {
         try {
@@ -65,19 +67,57 @@ public class FrontendVideoDownloadServiceImpl implements FrontendVideoDownloadSe
                 aid = com.tbw.cut.bilibili.BilibiliUtils.extractAidFromUrl(videoUrl);
             }
             
-            // 创建下载任务对象
-            DownloadTask downloadTask = new DownloadTask(null, videoUrl, bvid, aid, parts, config);
+            // 获取视频标题
+            String title = getVideoTitle(bvid, aid);
             
-            // 将任务添加到DownloadTaskManager队列中
+            // 创建主下载记录（用于集成关联）
+            com.tbw.cut.entity.VideoDownload mainDownload = new com.tbw.cut.entity.VideoDownload();
+            mainDownload.setBvid(bvid);
+            mainDownload.setAid(aid);
+            mainDownload.setTitle(title);
+            mainDownload.setPartTitle("集成下载任务");
+            mainDownload.setPartCount(parts != null ? parts.size() : 0);
+            mainDownload.setCurrentPart(1);
+            mainDownload.setDownloadUrl(videoUrl);
+            
+            // 设置下载配置信息
+            if (config != null) {
+                if (config.containsKey("resolution")) {
+                    String resolutionValue = config.get("resolution").toString();
+                    mainDownload.setResolution(resolutionValue);
+                }
+                if (config.containsKey("codec")) {
+                    mainDownload.setCodec(config.get("codec").toString());
+                }
+                if (config.containsKey("format")) {
+                    mainDownload.setFormat(config.get("format").toString());
+                }
+            }
+            
+            mainDownload.setStatus(0); // Pending
+            mainDownload.setProgress(0);
+            
+            // 同步创建数据库记录
+            mainDownload.setCreateTime(LocalDateTime.now());
+            mainDownload.setUpdateTime(LocalDateTime.now());
+            boolean saved = videoDownloadService.save(mainDownload);
+            if (!saved || mainDownload.getId() == null) {
+                log.error("创建主下载记录失败");
+                return null;
+            }
+            
+            Long mainDownloadId = mainDownload.getId();
+            log.info("成功创建主下载记录，ID: {}, bvid: {}, parts: {}", mainDownloadId, bvid, parts.size());
+            
+            // 创建下载任务对象，设置真实的数据库ID
+            DownloadTask downloadTask = new DownloadTask(mainDownloadId, videoUrl, bvid, aid, parts, config);
+            
+            // 将任务添加到DownloadTaskManager队列中进行异步处理
             frontendPartDownloadService.addDownloadTask(downloadTask);
             
-            // 返回一个标识符，前端可以用来查询状态
-            // 注意：由于是异步处理，这里返回的ID主要用于标识这次请求
-            // 实际的任务ID会在数据库记录创建后生成
-            Long requestId = System.currentTimeMillis();
-            log.info("下载请求已提交，请求ID: {}, bvid: {}, parts: {}", requestId, bvid, parts.size());
+            log.info("下载任务已提交到队列，主记录ID: {}, bvid: {}, parts: {}", mainDownloadId, bvid, parts.size());
             
-            return requestId;
+            return mainDownloadId;
         } catch (Exception e) {
             log.error("处理前端part下载请求失败", e);
             return null;

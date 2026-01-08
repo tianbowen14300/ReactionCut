@@ -33,7 +33,7 @@ public class SubmissionTask {
     private Date updatedAt;
     
     public enum TaskStatus {
-        PENDING, CLIPPING, MERGING, SEGMENTING, UPLOADING, COMPLETED, FAILED
+        PENDING, CLIPPING, MERGING, SEGMENTING, UPLOADING, COMPLETED, FAILED, WAITING_DOWNLOAD
     }
     
     public enum VideoType {

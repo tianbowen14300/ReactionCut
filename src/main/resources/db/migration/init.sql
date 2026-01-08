@@ -41,7 +41,7 @@ CREATE TABLE `login_info`
 CREATE TABLE `submission_task`
 (
     `task_id` char(36) NOT NULL,
-    `status` enum('PENDING','CLIPPING','MERGING','SEGMENTING','UPLOADING','COMPLETED','FAILED') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+    `status` enum('PENDING','CLIPPING','MERGING','SEGMENTING','UPLOADING','COMPLETED','FAILED','WAITING_DOWNLOAD') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
     `title` varchar(255) NOT NULL,
     `description` text,
     `cover_url` varchar(255) DEFAULT NULL,
@@ -162,3 +162,35 @@ CREATE TABLE `video_process_task`
   PRIMARY KEY (`id`),
   KEY `idx_video_process_task_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='视频处理任务表';
+
+-- reaction_cut.task_relations definition
+
+CREATE TABLE `task_relations` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `download_task_id` BIGINT NOT NULL COMMENT '下载任务ID',
+    `submission_task_id` CHAR(36) NOT NULL COMMENT '投稿任务ID',
+    `relation_type` ENUM('INTEGRATED', 'MANUAL') NOT NULL DEFAULT 'INTEGRATED' COMMENT '关联类型：INTEGRATED-集成创建，MANUAL-手动关联',
+    `status` ENUM('ACTIVE', 'COMPLETED', 'FAILED') NOT NULL DEFAULT 'ACTIVE' COMMENT '关联状态：ACTIVE-活跃，COMPLETED-已完成，FAILED-失败',
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    
+    PRIMARY KEY (`id`),
+    
+    -- 外键约束
+    CONSTRAINT `fk_task_relations_download` 
+        FOREIGN KEY (`download_task_id`) REFERENCES `video_download`(`id`) 
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT `fk_task_relations_submission` 
+        FOREIGN KEY (`submission_task_id`) REFERENCES `submission_task`(`task_id`) 
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    
+    -- 唯一约束：确保一个下载任务只能关联一个投稿任务
+    UNIQUE KEY `uk_download_submission` (`download_task_id`, `submission_task_id`),
+    
+    -- 索引优化
+    KEY `idx_task_relations_download_id` (`download_task_id`),
+    KEY `idx_task_relations_submission_id` (`submission_task_id`),
+    KEY `idx_task_relations_status` (`status`),
+    KEY `idx_task_relations_created_at` (`created_at`)
+    
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='任务关联表 - 管理下载任务与投稿任务的关联关系';

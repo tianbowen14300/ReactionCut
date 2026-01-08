@@ -33,27 +33,42 @@ public class SubmissionTaskServiceImpl implements SubmissionTaskService {
     @Override
     @Transactional
     public String createTask(SubmissionTask task, List<TaskSourceVideo> sourceVideos) {
+        log.info("开始创建投稿任务，task title: {}, sourceVideos count: {}", 
+                task != null ? task.getTitle() : "null", 
+                sourceVideos != null ? sourceVideos.size() : "null");
+        
+        // 验证输入参数
+        if (task == null) {
+            throw new IllegalArgumentException("SubmissionTask cannot be null");
+        }
+        
         // 设置任务ID和时间戳
         String taskId = UUID.randomUUID().toString();
-        task.setTaskId(taskId.toString());
+        task.setTaskId(taskId);
         task.setCreatedAt(new Date());
         task.setUpdatedAt(new Date());
         
         // 设置默认状态
         task.setStatus(SubmissionTask.TaskStatus.PENDING);
         
+        log.info("准备插入任务到数据库，taskId: {}", taskId);
+        
         // 插入任务
         submissionTaskMapper.insert(task);
         log.info("创建投稿任务，任务ID: {}", taskId);
         
         // 插入源视频
-        for (int i = 0; i < sourceVideos.size(); i++) {
-            TaskSourceVideo sourceVideo = sourceVideos.get(i);
-            sourceVideo.setId(UUID.randomUUID().toString());
-            sourceVideo.setTaskId(taskId);
-            sourceVideo.setSortOrder(i + 1);
-            taskSourceVideoMapper.insert(sourceVideo);
-            log.info("插入源视频，任务ID: {}, 视频ID: {}", taskId, sourceVideo.getId());
+        if (sourceVideos != null && !sourceVideos.isEmpty()) {
+            for (int i = 0; i < sourceVideos.size(); i++) {
+                TaskSourceVideo sourceVideo = sourceVideos.get(i);
+                sourceVideo.setId(UUID.randomUUID().toString());
+                sourceVideo.setTaskId(taskId);
+                sourceVideo.setSortOrder(i + 1);
+                taskSourceVideoMapper.insert(sourceVideo);
+                log.info("插入源视频，任务ID: {}, 视频ID: {}", taskId, sourceVideo.getId());
+            }
+        } else {
+            log.info("创建投稿任务时未提供源视频列表，任务ID: {}", taskId);
         }
         
         return taskId;

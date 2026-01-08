@@ -90,6 +90,14 @@
                 >
                   常规下载
                 </el-button>
+                <el-button 
+                  type="success" 
+                  size="small" 
+                  @click="showIntegrationDialog"
+                  :disabled="selectedParts.length === 0"
+                >
+                  下载+投稿
+                </el-button>
               </div>
             </div>
             
@@ -174,6 +182,171 @@
           <span slot="footer" class="dialog-footer">
             <el-button @click="downloadDialogVisible = false">取 消</el-button>
             <el-button type="primary" @click="startDownload">确 定</el-button>
+          </span>
+        </el-dialog>
+        
+        <!-- 集成投稿弹窗 -->
+        <el-dialog
+          title="下载+投稿配置"
+          :visible.sync="integrationDialogVisible"
+          width="1000px"
+          :close-on-click-modal="false"
+        >
+          <el-tabs v-model="integrationActiveTab" type="card">
+            <!-- 下载配置标签页 -->
+            <el-tab-pane label="下载配置" name="download">
+              <el-form :model="downloadConfig" label-width="100px">
+                <el-form-item label="下载名称">
+                  <el-input 
+                    v-model="downloadConfig.downloadName" 
+                    placeholder="请输入下载文件夹名称"
+                  ></el-input>
+                  <div style="font-size: 12px; color: #999; margin-top: 5px;">
+                    用于指定下载视频的主文件夹名称
+                  </div>
+                </el-form-item>
+                <el-form-item label="分辨率">
+                  <el-select v-model="downloadConfig.resolution" placeholder="请选择分辨率">
+                    <el-option 
+                      v-for="resolution in availableResolutions" 
+                      :key="resolution.value" 
+                      :label="resolution.label" 
+                      :value="resolution.value">
+                    </el-option>
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="编码格式">
+                  <el-select v-model="downloadConfig.codec" placeholder="请选择编码格式">
+                    <el-option 
+                      v-for="codec in availableCodecs" 
+                      :key="codec.value" 
+                      :label="codec.label" 
+                      :value="codec.value">
+                    </el-option>
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="流媒体格式">
+                  <el-select v-model="downloadConfig.format" placeholder="请选择格式">
+                    <el-option 
+                      v-for="format in availableFormats" 
+                      :key="format.value" 
+                      :label="format.label" 
+                      :value="format.value">
+                    </el-option>
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="下载内容">
+                  <el-select v-model="downloadConfig.content" placeholder="请选择下载内容">
+                    <el-option label="音视频" value="audio_video"></el-option>
+                    <el-option label="仅视频" value="video_only"></el-option>
+                    <el-option label="仅音频" value="audio_only"></el-option>
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="下载路径">
+                  <el-input v-model="downloadConfig.downloadPath" placeholder="请输入下载路径">
+                  </el-input>
+                  <div style="font-size: 12px; color: #999; margin-top: 5px;">
+                    默认路径: /Users/tbw/Reaction
+                  </div>
+                </el-form-item>
+              </el-form>
+            </el-tab-pane>
+            
+            <!-- 投稿配置标签页 -->
+            <el-tab-pane label="投稿配置" name="submission">
+              <el-form :model="submissionConfig" label-width="100px" :rules="submissionRules" ref="submissionForm">
+                <el-form-item label="视频标题" prop="title">
+                  <el-input 
+                    v-model="submissionConfig.title" 
+                    placeholder="请输入视频标题"
+                    maxlength="80"
+                    show-word-limit
+                  ></el-input>
+                </el-form-item>
+                <el-form-item label="视频描述" prop="description">
+                  <el-input 
+                    type="textarea" 
+                    v-model="submissionConfig.description" 
+                    placeholder="请输入视频描述"
+                    :rows="4"
+                    maxlength="2000"
+                    show-word-limit
+                  ></el-input>
+                </el-form-item>
+                <el-form-item label="视频分区" prop="partitionId">
+                  <el-select v-model="submissionConfig.partitionId" placeholder="请选择视频分区">
+                    <el-option 
+                      v-for="partition in availablePartitions" 
+                      :key="partition.value" 
+                      :label="partition.label" 
+                      :value="partition.value">
+                    </el-option>
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="视频标签">
+                  <el-input 
+                    v-model="submissionConfig.tags" 
+                    placeholder="请输入标签，用逗号分隔"
+                    maxlength="200"
+                    show-word-limit
+                  ></el-input>
+                  <div style="font-size: 12px; color: #999; margin-top: 5px;">
+                    多个标签用逗号分隔，如：游戏,娱乐,搞笑
+                  </div>
+                </el-form-item>
+                <el-form-item label="视频类型" prop="videoType">
+                  <el-radio-group v-model="submissionConfig.videoType">
+                    <el-radio label="ORIGINAL">自制原创</el-radio>
+                    <el-radio label="REPOST">转载</el-radio>
+                  </el-radio-group>
+                </el-form-item>
+              </el-form>
+            </el-tab-pane>
+            
+            <!-- 分P配置标签页 -->
+            <el-tab-pane label="分P配置" name="parts">
+              <div class="parts-config">
+                <div class="parts-header">
+                  <span>已选择 {{ selectedParts.length }} 个分P</span>
+                </div>
+                <el-table :data="selectedPartsWithConfig" style="width: 100%">
+                  <el-table-column prop="originalTitle" label="分P标题" width="200"></el-table-column>
+                  <el-table-column label="视频文件" width="300">
+                    <template slot-scope="scope">
+                      <span class="file-path">{{ scope.row.filePath }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="开始时间" width="120">
+                    <template slot-scope="scope">
+                      <el-input 
+                        v-model="scope.row.startTime" 
+                        placeholder="00:00:00"
+                        size="small"
+                      ></el-input>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="结束时间" width="120">
+                    <template slot-scope="scope">
+                      <el-input 
+                        v-model="scope.row.endTime" 
+                        placeholder="00:00:00"
+                        size="small"
+                      ></el-input>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="duration" label="原时长" width="100">
+                    <template slot-scope="scope">
+                      {{ formatDuration(scope.row.duration) }}
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </div>
+            </el-tab-pane>
+          </el-tabs>
+          
+          <span slot="footer" class="dialog-footer">
+            <el-button @click="integrationDialogVisible = false">取 消</el-button>
+            <el-button type="primary" @click="startIntegrationDownload">开始下载+投稿</el-button>
           </span>
         </el-dialog>
       </el-tab-pane>
@@ -375,7 +548,71 @@ export default {
       downloadingDownloads: [],
       completedDownloads: [],
       // WebSocket连接
-      websocket: null
+      websocket: null,
+      // 集成投稿相关数据
+      integrationDialogVisible: false,
+      integrationActiveTab: 'download',
+      submissionConfig: {
+        title: '',
+        description: '',
+        partitionId: null,
+        tags: '',
+        videoType: 'ORIGINAL'
+      },
+      submissionRules: {
+        title: [
+          { required: true, message: '请输入视频标题', trigger: 'blur' },
+          { max: 80, message: '标题不能超过80个字符', trigger: 'blur' }
+        ],
+        partitionId: [
+          { required: true, message: '请选择视频分区', trigger: 'change' }
+        ],
+        videoType: [
+          { required: true, message: '请选择视频类型', trigger: 'change' }
+        ]
+      },
+      availablePartitions: [
+        { value: 1, label: '动画' },
+        { value: 3, label: '音乐' },
+        { value: 4, label: '游戏' },
+        { value: 5, label: '娱乐' },
+        { value: 36, label: '知识' },
+        { value: 188, label: '科技' },
+        { value: 160, label: '生活' },
+        { value: 119, label: '鬼畜' },
+        { value: 155, label: '时尚' },
+        { value: 165, label: '广告' },
+        { value: 167, label: '国创' },
+        { value: 177, label: '纪录片' },
+        { value: 181, label: '影视' },
+        { value: 217, label: '动物圈' }
+      ],
+      selectedPartsWithConfig: []
+    }
+  },
+  computed: {
+    // 计算属性：格式化后的选中分P列表
+    formattedSelectedParts() {
+      return this.selectedPartsWithConfig.map(partConfig => ({
+        ...partConfig,
+        expectedFilePath: this.generateExpectedFilePath({
+          part: partConfig.originalTitle,
+          id: partConfig.cid
+        })
+      }))
+    }
+  },
+  watch: {
+    // 监听下载名称变化，同步更新分P配置中的文件路径
+    'downloadConfig.downloadName': function(newVal, oldVal) {
+      if (this.selectedPartsWithConfig && this.selectedPartsWithConfig.length > 0) {
+        this.selectedPartsWithConfig.forEach(partConfig => {
+          partConfig.filePath = this.generateExpectedFilePath({
+            part: partConfig.originalTitle,
+            id: partConfig.cid
+          })
+        })
+      }
     }
   },
   mounted() {
@@ -1059,6 +1296,231 @@ export default {
       } catch (error) {
         console.error('加载已完成任务失败:', error)
       }
+    },
+    
+    // 显示集成投稿对话框
+    showIntegrationDialog() {
+      if (this.selectedParts.length === 0) {
+        this.$message.warning('请至少选择一个分P')
+        return
+      }
+      
+      // 初始化投稿配置
+      this.initializeSubmissionConfig()
+      
+      // 更新分P配置
+      this.updateSelectedPartsWithConfig()
+      
+      // 显示对话框
+      this.integrationDialogVisible = true
+      this.integrationActiveTab = 'download'
+    },
+    
+    // 初始化投稿配置
+    initializeSubmissionConfig() {
+      // 不自动回显视频信息，需要用户手动填写
+      this.submissionConfig.title = ''
+      this.submissionConfig.description = ''
+      // 删除封面URL字段
+      
+      // 重置其他字段为默认值
+      if (!this.submissionConfig.partitionId) {
+        this.submissionConfig.partitionId = null
+      }
+      if (!this.submissionConfig.tags) {
+        this.submissionConfig.tags = ''
+      }
+      if (!this.submissionConfig.videoType) {
+        this.submissionConfig.videoType = 'ORIGINAL'
+      }
+    },
+    
+    // 更新选中分P的配置
+    updateSelectedPartsWithConfig() {
+      this.selectedPartsWithConfig = this.selectedParts.map(part => ({
+        originalTitle: part.part,
+        filePath: this.generateExpectedFilePath(part),
+        startTime: '00:00:00', // 默认开始时间
+        endTime: this.formatDuration(part.duration), // 默认结束时间为视频时长
+        duration: part.duration,
+        cid: part.id
+      }))
+    },
+    
+    // 生成预期文件路径
+    generateExpectedFilePath(part) {
+      const basePath = this.downloadConfig.downloadPath || '/Users/tbw/Reaction'
+      const folderName = this.downloadConfig.downloadName || (this.videoInfo && this.videoInfo.title) || 'Unknown'
+      const fileName = `${part.part}.mp4`
+      return `${basePath}/${folderName}/${fileName}`
+    },
+    
+    // 开始集成下载+投稿
+    async startIntegrationDownload() {
+      try {
+        // 验证表单
+        const validationResult = await this.validateIntegrationForm()
+        if (!validationResult.valid) {
+          this.$message.error(validationResult.message)
+          return
+        }
+        
+        // 构建集成请求数据
+        const integrationRequest = this.buildIntegrationRequest()
+        
+        console.log('发送集成请求:', integrationRequest)
+        
+        // 调用集成API
+        const response = await this.callIntegrationAPI(integrationRequest)
+        
+        if (response.code === 0) {
+          this.$message.success('集成任务创建成功')
+          this.integrationDialogVisible = false
+          
+          // 重新加载下载记录
+          this.loadDownloadRecords()
+          
+          // 显示任务信息
+          this.showTaskCreationResult(response.data)
+        } else {
+          this.$message.error(response.message || '集成任务创建失败')
+        }
+        
+      } catch (error) {
+        console.error('集成下载失败:', error)
+        this.$message.error('集成下载失败: ' + error.message)
+      }
+    },
+    
+    // 验证集成表单
+    async validateIntegrationForm() {
+      // 验证下载配置
+      if (!this.downloadConfig.resolution) {
+        return { valid: false, message: '请选择分辨率' }
+      }
+      if (!this.downloadConfig.codec) {
+        return { valid: false, message: '请选择编码格式' }
+      }
+      if (!this.downloadConfig.format) {
+        return { valid: false, message: '请选择流媒体格式' }
+      }
+      
+      // 验证投稿配置
+      if (!this.submissionConfig.title || this.submissionConfig.title.trim() === '') {
+        return { valid: false, message: '请输入视频标题' }
+      }
+      if (this.submissionConfig.title.length > 80) {
+        return { valid: false, message: '视频标题不能超过80个字符' }
+      }
+      if (!this.submissionConfig.partitionId) {
+        return { valid: false, message: '请选择视频分区' }
+      }
+      if (!this.submissionConfig.videoType) {
+        return { valid: false, message: '请选择视频类型' }
+      }
+      if (this.submissionConfig.description && this.submissionConfig.description.length > 2000) {
+        return { valid: false, message: '视频描述不能超过2000个字符' }
+      }
+      
+      // 验证分P配置
+      for (let i = 0; i < this.selectedPartsWithConfig.length; i++) {
+        const partConfig = this.selectedPartsWithConfig[i]
+        
+        // 验证开始时间格式
+        if (partConfig.startTime && !this.isValidTimeFormat(partConfig.startTime)) {
+          return { valid: false, message: `第${i + 1}个分P的开始时间格式不正确，请使用 HH:MM:SS 格式` }
+        }
+        
+        // 验证结束时间格式
+        if (partConfig.endTime && !this.isValidTimeFormat(partConfig.endTime)) {
+          return { valid: false, message: `第${i + 1}个分P的结束时间格式不正确，请使用 HH:MM:SS 格式` }
+        }
+        
+        // 验证时间逻辑
+        if (partConfig.startTime && partConfig.endTime) {
+          const startSeconds = this.timeToSeconds(partConfig.startTime)
+          const endSeconds = this.timeToSeconds(partConfig.endTime)
+          if (startSeconds >= endSeconds) {
+            return { valid: false, message: `第${i + 1}个分P的开始时间必须小于结束时间` }
+          }
+        }
+      }
+      
+      return { valid: true }
+    },
+    
+    // 验证时间格式 (HH:MM:SS)
+    isValidTimeFormat(timeStr) {
+      const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$/
+      return timeRegex.test(timeStr)
+    },
+    
+    // 将时间字符串转换为秒数
+    timeToSeconds(timeStr) {
+      const parts = timeStr.split(':')
+      return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2])
+    },
+    
+    // 构建集成请求数据
+    buildIntegrationRequest() {
+      return {
+        enableSubmission: true,
+        downloadRequest: {
+          videoUrl: this.videoInfo.bvid ? 
+            `https://www.bilibili.com/video/${this.videoInfo.bvid}` : 
+            `https://www.bilibili.com/video/av${this.videoInfo.aid}`,
+          parts: this.selectedParts.map(part => ({
+            cid: part.id,
+            title: part.part
+          })),
+          config: {
+            ...this.downloadConfig,
+            downloadName: this.downloadConfig.downloadName || (this.videoInfo && this.videoInfo.title)
+          }
+        },
+        submissionRequest: {
+          title: this.submissionConfig.title,
+          description: this.submissionConfig.description,
+          partitionId: this.submissionConfig.partitionId,
+          tags: this.submissionConfig.tags,
+          videoType: this.submissionConfig.videoType,
+          videoParts: this.selectedPartsWithConfig.map(partConfig => ({
+            originalTitle: partConfig.originalTitle,
+            cid: partConfig.cid,
+            filePath: partConfig.filePath,
+            startTime: partConfig.startTime,
+            endTime: partConfig.endTime
+          }))
+        }
+      }
+    },
+    
+    // 调用集成API
+    async callIntegrationAPI(requestData) {
+      // 使用现有的downloadVideo API，但传入集成数据
+      return await downloadVideo(requestData)
+    },
+    
+    // 显示任务创建结果
+    showTaskCreationResult(result) {
+      let message = '任务创建成功！\n'
+      
+      if (result.downloadTaskId) {
+        message += `下载任务ID: ${result.downloadTaskId}\n`
+      }
+      
+      if (result.submissionTaskId) {
+        message += `投稿任务ID: ${result.submissionTaskId}\n`
+      }
+      
+      if (result.relationId) {
+        message += `关联ID: ${result.relationId}`
+      }
+      
+      this.$alert(message, '任务创建成功', {
+        confirmButtonText: '确定',
+        type: 'success'
+      })
     }
   }
 }
@@ -1241,5 +1703,104 @@ export default {
   color: #909399;
   padding: 50px 0;
   font-size: 14px;
+}
+
+/* 集成投稿对话框样式 */
+.parts-config {
+  min-height: 300px;
+}
+
+.parts-config .parts-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.parts-config .parts-header span {
+  font-weight: bold;
+  color: #303133;
+}
+
+.file-path {
+  font-size: 12px;
+  color: #909399;
+  font-family: monospace;
+}
+
+/* 投稿配置表单样式 */
+.el-form-item__label {
+  font-weight: 500;
+}
+
+.el-textarea__inner {
+  resize: vertical;
+}
+
+/* 分P配置表格样式 */
+.parts-config .el-table {
+  border: 1px solid #ebeef5;
+}
+
+.parts-config .el-table th {
+  background-color: #fafafa;
+}
+
+.parts-config .el-input--small .el-input__inner {
+  height: 28px;
+  line-height: 28px;
+}
+
+/* 对话框标签页样式 */
+.el-dialog .el-tabs__header {
+  margin-bottom: 20px;
+}
+
+.el-dialog .el-tabs__content {
+  padding-top: 0;
+}
+
+/* 表单验证错误样式 */
+.el-form-item.is-error .el-input__inner,
+.el-form-item.is-error .el-textarea__inner {
+  border-color: #f56c6c;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .video-header {
+    flex-direction: column;
+  }
+  
+  .video-cover {
+    width: 100%;
+    height: 200px;
+    margin-right: 0;
+    margin-bottom: 15px;
+  }
+  
+  .uploader-info {
+    width: 100%;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    margin-top: 15px;
+  }
+  
+  .uploader-avatar {
+    margin-right: 10px;
+    margin-bottom: 0;
+  }
+  
+  .parts-actions {
+    flex-direction: column;
+    gap: 5px;
+  }
+  
+  .parts-actions .el-button {
+    width: 100%;
+  }
 }
 </style>

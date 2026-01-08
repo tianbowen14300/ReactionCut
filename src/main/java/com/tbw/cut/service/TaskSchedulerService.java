@@ -1,6 +1,5 @@
 package com.tbw.cut.service;
 
-import com.tbw.cut.service.impl.TaskExecutorServiceImpl;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -8,10 +7,10 @@ import org.springframework.stereotype.Service;
 public class TaskSchedulerService {
     
     private final SubmissionTaskService submissionTaskService;
-    private final TaskExecutorServiceImpl taskExecutorService;
+    private final TaskExecutorService taskExecutorService;
     
     public TaskSchedulerService(SubmissionTaskService submissionTaskService, 
-                               TaskExecutorServiceImpl taskExecutorService) {
+                               TaskExecutorService taskExecutorService) {
         this.submissionTaskService = submissionTaskService;
         this.taskExecutorService = taskExecutorService;
     }
