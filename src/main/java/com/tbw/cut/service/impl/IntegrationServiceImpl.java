@@ -4,8 +4,10 @@ import com.tbw.cut.dto.*;
 import com.tbw.cut.entity.SubmissionTask;
 import com.tbw.cut.entity.TaskRelation;
 import com.tbw.cut.entity.VideoDownload;
+import com.tbw.cut.entity.TaskSourceVideo;
 import com.tbw.cut.event.DownloadStatusChangeEvent;
 import com.tbw.cut.mapper.TaskRelationMapper;
+import com.tbw.cut.mapper.VideoPartsMapper;
 import com.tbw.cut.service.IntegrationService;
 import com.tbw.cut.service.StatusSyncService;
 import com.tbw.cut.service.SubmissionTaskService;
@@ -21,6 +23,7 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.Map;
+import java.util.List;
 
 /**
  * 视频下载与投稿集成服务实现
@@ -89,6 +92,9 @@ public class IntegrationServiceImpl implements IntegrationService {
         } catch (SubmissionTaskCreationException e) {
             log.error("Failed to create submission task", e);
             throw new IntegrationException("投稿任务创建失败: " + e.getMessage(), "SUBMISSION_TASK_CREATION_FAILED", e);
+        } catch (TaskSourceVideoCreationException e) {
+            log.error("Failed to create task source video data: {}", e.getDetailedMessage(), e);
+            throw new IntegrationException("分P配置数据处理失败: " + e.getDetailedMessage(), "TASK_SOURCE_VIDEO_CREATION_FAILED", e);
         } catch (TaskRelationCreationException e) {
             log.error("Failed to create task relation", e);
             // 检查是否是外键约束违反
@@ -259,8 +265,12 @@ public class IntegrationServiceImpl implements IntegrationService {
             // 设置待处理状态（等待下载完成后再处理）
             task.setStatus(SubmissionTask.TaskStatus.PENDING);
             
-            // 创建任务（传入空的源视频列表，后续下载完成后更新）
-            String taskId = submissionTaskService.createTask(task, new java.util.ArrayList<>());
+            // 处理分P配置数据
+            List<TaskSourceVideo> sourceVideos = processVideoPartsConfiguration(submissionRequest);
+            log.info("处理分P配置完成，源视频数量: {}", sourceVideos.size());
+            
+            // 创建任务（传入实际的源视频列表）
+            String taskId = submissionTaskService.createTask(task, sourceVideos);
             log.info("成功创建投稿任务，taskId: {}", taskId);
             
             return taskId;
@@ -269,6 +279,33 @@ public class IntegrationServiceImpl implements IntegrationService {
             log.error("创建投稿任务失败", e);
             throw new SubmissionTaskCreationException("Failed to create submission task", e);
         }
+    }
+    
+    /**
+     * 处理分P配置数据，转换为TaskSourceVideo列表
+     */
+    private List<TaskSourceVideo> processVideoPartsConfiguration(SubmissionRequestDTO submissionRequest) {
+        if (submissionRequest == null || submissionRequest.getVideoParts() == null) {
+            log.info("没有分P配置数据，返回空列表");
+            return new java.util.ArrayList<>();
+        }
+        
+        List<VideoPartInfoDTO> videoParts = submissionRequest.getVideoParts();
+        log.info("开始处理分P配置，分P数量: {}", videoParts.size());
+        
+        // 验证分P配置数据
+        VideoPartsMapper.ValidationResult validation = VideoPartsMapper.validateVideoParts(videoParts);
+        if (!validation.isValid()) {
+            String errorMessage = "分P配置数据验证失败: " + validation.getErrorMessage();
+            log.error(errorMessage);
+            throw new TaskSourceVideoCreationException(errorMessage, validation.getErrors());
+        }
+        
+        // 映射分P配置到TaskSourceVideo实体（taskId将在SubmissionTaskService中设置）
+        List<TaskSourceVideo> sourceVideos = VideoPartsMapper.mapVideoPartsToSourceVideos(videoParts, null);
+        
+        log.info("分P配置映射完成，映射后的源视频数量: {}", sourceVideos.size());
+        return sourceVideos;
     }
     
     /**
@@ -489,6 +526,31 @@ public class IntegrationServiceImpl implements IntegrationService {
     public static class TaskRelationCreationException extends RuntimeException {
         public TaskRelationCreationException(String message, Throwable cause) {
             super(message, cause);
+        }
+    }
+    
+    public static class TaskSourceVideoCreationException extends RuntimeException {
+        private final List<String> validationErrors;
+        
+        public TaskSourceVideoCreationException(String message, List<String> validationErrors) {
+            super(message);
+            this.validationErrors = validationErrors != null ? validationErrors : new java.util.ArrayList<>();
+        }
+        
+        public TaskSourceVideoCreationException(String message, Throwable cause) {
+            super(message, cause);
+            this.validationErrors = new java.util.ArrayList<>();
+        }
+        
+        public List<String> getValidationErrors() {
+            return new java.util.ArrayList<>(validationErrors);
+        }
+        
+        public String getDetailedMessage() {
+            if (validationErrors.isEmpty()) {
+                return getMessage();
+            }
+            return getMessage() + " Details: " + String.join("; ", validationErrors);
         }
     }
 }

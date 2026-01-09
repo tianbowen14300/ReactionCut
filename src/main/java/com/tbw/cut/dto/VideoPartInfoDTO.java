@@ -56,6 +56,21 @@ public class VideoPartInfoDTO {
     private String submissionTitle;
     
     /**
+     * 视频开始时间（格式：HH:mm:ss）
+     */
+    private String startTime;
+    
+    /**
+     * 视频结束时间（格式：HH:mm:ss）
+     */
+    private String endTime;
+    
+    /**
+     * 实际的文件路径（用于task_source_video表）
+     */
+    private String filePath;
+    
+    /**
      * 获取投稿标题（优先使用submissionTitle，否则使用原title）
      */
     public String getEffectiveTitle() {

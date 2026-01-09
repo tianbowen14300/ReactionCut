@@ -2,6 +2,8 @@ package com.tbw.cut.service.download.segmented;
 
 import com.tbw.cut.service.download.model.DownloadResult;
 import com.tbw.cut.service.download.logging.DownloadTimeLogger;
+import com.tbw.cut.bilibili.BilibiliApiClient;
+import com.tbw.cut.service.VideoUrlRefreshService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -40,6 +42,12 @@ public class SegmentDownloadExecutor {
     
     @Autowired
     private DownloadTimeLogger downloadTimeLogger;
+    
+    @Autowired(required = false)
+    private BilibiliApiClient bilibiliApiClient;
+    
+    @Autowired(required = false)
+    private VideoUrlRefreshService videoUrlRefreshService;
     
     private final ExecutorService executorService = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "segment-download-" + System.currentTimeMillis());
@@ -134,6 +142,9 @@ public class SegmentDownloadExecutor {
             connection.setRequestMethod("HEAD");
             connection.setConnectTimeout(connectionTimeout);
             connection.setReadTimeout(readTimeout);
+            
+            // 添加增强的HTTP请求头和Cookie认证
+            addEnhancedHeaders(connection);
             
             int responseCode = connection.getResponseCode();
             String acceptRanges = connection.getHeaderField("Accept-Ranges");
@@ -272,9 +283,16 @@ public class SegmentDownloadExecutor {
             String rangeHeader = String.format("bytes=%d-%d", segment.getStart(), segment.getEnd());
             connection.setRequestProperty("Range", rangeHeader);
             
+            // 添加增强的HTTP请求头和Cookie认证
+            addEnhancedHeaders(connection);
+            
             // 检查响应码
             int responseCode = connection.getResponseCode();
-            if (responseCode != 206) { // 206 Partial Content
+            if (responseCode == 403) {
+                // 检测到403错误，尝试URL刷新
+                log.warn("Segment {} download got 403 error, this may indicate URL expiration", segment.getIndex());
+                throw new IOException("403 Forbidden - URL may be expired or authentication failed");
+            } else if (responseCode != 206) { // 206 Partial Content
                 throw new IOException("Unexpected response code: " + responseCode);
             }
             
@@ -352,6 +370,62 @@ public class SegmentDownloadExecutor {
     }
     
     /**
+     * 添加增强的HTTP请求头和Cookie认证
+     * @param connection HTTP连接
+     */
+    private void addEnhancedHeaders(HttpURLConnection connection) {
+        // 设置增强的User-Agent
+        connection.setRequestProperty("User-Agent", 
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+        
+        // 设置Bilibili相关的请求头
+        connection.setRequestProperty("Referer", "https://www.bilibili.com/");
+        connection.setRequestProperty("Origin", "https://www.bilibili.com");
+        connection.setRequestProperty("Accept", "*/*");
+        connection.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
+        connection.setRequestProperty("Accept-Encoding", "identity"); // 避免压缩问题
+        connection.setRequestProperty("Connection", "keep-alive");
+        connection.setRequestProperty("Sec-Fetch-Dest", "video");
+        connection.setRequestProperty("Sec-Fetch-Mode", "cors");
+        connection.setRequestProperty("Sec-Fetch-Site", "cross-site");
+        connection.setRequestProperty("Sec-Ch-Ua", "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\"");
+        connection.setRequestProperty("Sec-Ch-Ua-Mobile", "?0");
+        connection.setRequestProperty("Sec-Ch-Ua-Platform", "\"macOS\"");
+        
+        // 添加Cookie认证信息
+        String cookie = getCookieFromBilibiliApiClient();
+        if (cookie != null && !cookie.isEmpty()) {
+            connection.setRequestProperty("Cookie", cookie);
+            log.debug("Added Cookie to segment download request: {}", cookie.substring(0, Math.min(50, cookie.length())) + "...");
+        } else {
+            log.warn("No Cookie available for segment download request, this may cause 403 errors");
+        }
+    }
+    
+    /**
+     * 从BilibiliApiClient获取Cookie认证信息
+     * @return Cookie字符串，如果获取失败返回null
+     */
+    private String getCookieFromBilibiliApiClient() {
+        try {
+            if (bilibiliApiClient != null) {
+                String cookie = bilibiliApiClient.extractCookieFromLoginInfo();
+                if (cookie != null && !cookie.trim().isEmpty()) {
+                    log.debug("Successfully extracted Cookie from BilibiliApiClient for segment download");
+                    return cookie;
+                } else {
+                    log.warn("BilibiliApiClient returned empty Cookie for segment download");
+                }
+            } else {
+                log.warn("BilibiliApiClient is not available for segment download");
+            }
+        } catch (Exception e) {
+            log.warn("Failed to get Cookie from BilibiliApiClient for segment download: {}", e.getMessage());
+        }
+        return null;
+    }
+    
+    /**
      * 执行单文件下载（降级方案）
      * @param url 下载URL
      * @param outputPath 输出路径
@@ -364,6 +438,18 @@ public class SegmentDownloadExecutor {
             HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
             connection.setConnectTimeout(connectionTimeout);
             connection.setReadTimeout(readTimeout);
+            
+            // 添加增强的HTTP请求头和Cookie认证
+            addEnhancedHeaders(connection);
+            
+            // 检查响应码
+            int responseCode = connection.getResponseCode();
+            if (responseCode == 403) {
+                log.warn("Single download got 403 error, this may indicate URL expiration or authentication failure");
+                return DownloadResult.failure("403 Forbidden - URL may be expired or authentication failed");
+            } else if (responseCode != 200) {
+                return DownloadResult.failure("Unexpected response code: " + responseCode);
+            }
             
             long fileSize = connection.getContentLengthLong();
             
