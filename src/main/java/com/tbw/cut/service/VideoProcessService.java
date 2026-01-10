@@ -70,4 +70,45 @@ public interface VideoProcessService {
      * @return 合并后的视频路径
      */
     String getMergedVideoPathFromDatabase(String taskId);
+    
+    // ==================== 异步处理方法 ====================
+    
+    /**
+     * 异步视频剪辑处理
+     * @param taskId 任务ID
+     * @param callback 完成回调
+     */
+    void clipVideosAsync(String taskId, ProcessingCallback callback);
+    
+    /**
+     * 异步视频合并处理
+     * @param taskId 任务ID
+     * @param callback 完成回调
+     */
+    void mergeVideosAsync(String taskId, MergingCallback callback);
+    
+    /**
+     * 异步视频分段处理
+     * @param taskId 任务ID
+     * @param callback 完成回调
+     */
+    void segmentVideoAsync(String taskId, ProcessingCallback callback);
+    
+    // ==================== 回调接口定义 ====================
+    
+    /**
+     * 处理完成回调接口（用于剪辑和分段）
+     */
+    @FunctionalInterface
+    interface ProcessingCallback {
+        void onComplete(boolean success, List<String> outputPaths, String errorMessage);
+    }
+    
+    /**
+     * 合并完成回调接口
+     */
+    @FunctionalInterface
+    interface MergingCallback {
+        void onComplete(boolean success, String outputPath, String errorMessage);
+    }
 }

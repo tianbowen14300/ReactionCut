@@ -60,4 +60,26 @@ public interface VideoDownloadService extends IService<VideoDownload> {
      * @return 是否删除成功
      */
     boolean deleteDownloadRecord(Long taskId);
+    
+    /**
+     * 查找最近创建的下载记录
+     * @param bvid 视频BVID
+     * @param title 视频标题
+     * @param limit 限制数量
+     * @return 最近的下载记录列表
+     */
+    List<VideoDownload> findRecentDownloads(String bvid, String title, int limit);
+    
+    /**
+     * 获取最近的下载记录
+     * @param limit 限制数量
+     * @return 下载记录列表
+     */
+    List<VideoDownload> getRecentDownloads(int limit);
+    
+    /**
+     * 查找已完成但local_path为空的记录
+     * @return 问题记录列表
+     */
+    List<VideoDownload> findCompletedWithEmptyLocalPath();
 }

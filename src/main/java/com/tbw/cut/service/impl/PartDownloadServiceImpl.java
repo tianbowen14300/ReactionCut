@@ -5,9 +5,11 @@ import com.tbw.cut.config.DownloadConfig;
 import com.tbw.cut.entity.VideoDownload;
 import com.tbw.cut.mapper.VideoDownloadMapper;
 import com.tbw.cut.service.PartDownloadService;
+import com.tbw.cut.event.DownloadStatusChangeEvent;
 import com.tbw.cut.websocket.DownloadProgressWebSocket;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -20,6 +22,9 @@ public class PartDownloadServiceImpl extends ServiceImpl<VideoDownloadMapper, Vi
     
     @Autowired
     private DownloadConfig downloadConfig;
+    
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
     
     // 数据库更新节流控制
     private final Map<Long, Long> lastDbUpdateTimes = new ConcurrentHashMap<>();
@@ -154,13 +159,46 @@ public class PartDownloadServiceImpl extends ServiceImpl<VideoDownloadMapper, Vi
     
     @Override
     public void completePartDownload(Long taskId, String localPath) {
+        log.info("=== 完成分P下载 ===");
+        log.info("任务ID: {}", taskId);
+        log.info("本地路径: {}", localPath);
+        
         VideoDownload download = this.getById(taskId);
         if (download != null) {
+            log.info("找到下载记录: id={}, bvid={}, title={}, 当前状态={}, 当前进度={}%", 
+                    download.getId(), download.getBvid(), download.getTitle(), 
+                    download.getStatus(), download.getProgress());
+            
+            // 记录更新前的状态
+            String oldLocalPath = download.getLocalPath();
+            Integer oldStatus = download.getStatus();
+            Integer oldProgress = download.getProgress();
+            
             download.setStatus(2); // Completed
             download.setLocalPath(localPath);
             download.setUpdateTime(LocalDateTime.now());
             download.setProgress(100); // 设置进度为100%
-            this.updateById(download);
+            
+            boolean updateResult = this.updateById(download);
+            
+            log.info("数据库更新结果: {}", updateResult ? "成功" : "失败");
+            log.info("更新前: status={}, progress={}%, localPath={}", oldStatus, oldProgress, oldLocalPath);
+            log.info("更新后: status={}, progress={}%, localPath={}", download.getStatus(), download.getProgress(), download.getLocalPath());
+            
+            // 验证更新是否生效
+            VideoDownload updatedDownload = this.getById(taskId);
+            if (updatedDownload != null) {
+                log.info("验证更新结果: status={}, progress={}%, localPath={}", 
+                        updatedDownload.getStatus(), updatedDownload.getProgress(), updatedDownload.getLocalPath());
+                
+                if (!localPath.equals(updatedDownload.getLocalPath())) {
+                    log.error("❌ 严重错误: local_path字段更新失败! 期望={}, 实际={}", localPath, updatedDownload.getLocalPath());
+                } else {
+                    log.info("✅ local_path字段更新成功: {}", updatedDownload.getLocalPath());
+                }
+            } else {
+                log.error("❌ 无法重新查询下载记录进行验证");
+            }
             
             // 更新节流数据
             lastDbUpdateTimes.put(taskId, System.currentTimeMillis());
@@ -172,9 +210,23 @@ public class PartDownloadServiceImpl extends ServiceImpl<VideoDownloadMapper, Vi
             // 完成时强制发送进度更新
             DownloadProgressWebSocket.forceProgressUpdate(taskId, 100);
             
+            // **新增：发布下载完成事件**
+            try {
+                DownloadStatusChangeEvent event = DownloadStatusChangeEvent.create(taskId, null, 2);
+                eventPublisher.publishEvent(event);
+                log.info("Published download completion event for part task: taskId={}", taskId);
+            } catch (Exception e) {
+                log.error("Failed to publish download completion event for part task: taskId={}", taskId, e);
+                // 不抛出异常，避免影响主流程
+            }
+            
             // 清理节流数据
             clearThrottlingData(taskId);
+        } else {
+            log.error("❌ 无法找到下载记录: taskId={}", taskId);
         }
+        
+        log.info("=== 完成分P下载处理结束 ===");
     }
     
     @Override
@@ -187,6 +239,16 @@ public class PartDownloadServiceImpl extends ServiceImpl<VideoDownloadMapper, Vi
             log.error("Part download failed, Task ID: {}, Error: {}", taskId, errorMessage);
             // 广播状态更新
             DownloadProgressWebSocket.broadcastStatusUpdate(taskId, 3);
+            
+            // **新增：发布下载失败事件**
+            try {
+                DownloadStatusChangeEvent event = DownloadStatusChangeEvent.create(taskId, null, 3);
+                eventPublisher.publishEvent(event);
+                log.info("Published download failure event for part task: taskId={}", taskId);
+            } catch (Exception e) {
+                log.error("Failed to publish download failure event for part task: taskId={}", taskId, e);
+                // 不抛出异常，避免影响主流程
+            }
             
             // 清理节流数据
             clearThrottlingData(taskId);

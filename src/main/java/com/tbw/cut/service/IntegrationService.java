@@ -50,6 +50,23 @@ public interface IntegrationService {
     boolean removeTaskRelation(Long downloadTaskId, String submissionTaskId);
     
     /**
+     * 更新工作流状态
+     * @param downloadTaskId 下载任务ID
+     * @param submissionTaskId 投稿任务ID
+     * @param workflowInstanceId 工作流实例ID
+     * @param status 状态
+     */
+    void updateWorkflowStatus(Long downloadTaskId, String submissionTaskId, String workflowInstanceId, String status);
+    
+    /**
+     * 标记工作流启动失败
+     * @param downloadTaskId 下载任务ID
+     * @param submissionTaskId 投稿任务ID
+     * @param errorMessage 错误信息
+     */
+    void markWorkflowStartupFailed(Long downloadTaskId, String submissionTaskId, String errorMessage);
+    
+    /**
      * 任务类型枚举
      */
     enum TaskRelationType {

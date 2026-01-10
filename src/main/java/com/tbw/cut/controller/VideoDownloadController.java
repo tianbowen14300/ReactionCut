@@ -11,10 +11,13 @@ import com.tbw.cut.entity.VideoDownload;
 import com.tbw.cut.service.IntegrationService;
 import com.tbw.cut.service.VideoDownloadService;
 import com.tbw.cut.service.FrontendVideoDownloadService;
+import com.tbw.cut.workflow.model.WorkflowConfig;
+import com.tbw.cut.workflow.model.SegmentationConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -216,6 +219,13 @@ public class VideoDownloadController {
             IntegrationRequest request = new IntegrationRequest();
             request.setEnableSubmission((Boolean) requestData.get("enableSubmission"));
             
+            // 处理工作流配置
+            if (requestData.containsKey("workflowConfig")) {
+                Map<String, Object> workflowConfigMap = (Map<String, Object>) requestData.get("workflowConfig");
+                WorkflowConfig workflowConfig = convertToWorkflowConfig(workflowConfigMap);
+                request.setWorkflowConfig(workflowConfig);
+            }
+            
             // 直接保存原始下载请求数据
             Map<String, Object> downloadRequestMap = (Map<String, Object>) requestData.get("downloadRequest");
             if (downloadRequestMap != null) {
@@ -225,8 +235,15 @@ public class VideoDownloadController {
             // 转换投稿请求数据
             Map<String, Object> submissionRequestMap = (Map<String, Object>) requestData.get("submissionRequest");
             if (submissionRequestMap != null) {
-                SubmissionRequestDTO submissionRequest = convertToSubmissionRequestDTO(submissionRequestMap);
+                SubmissionRequestDTO submissionRequest = convertToSubmissionRequestDTO(submissionRequestMap, downloadRequestMap);
                 request.setSubmissionRequest(submissionRequest);
+            }
+            
+            // 设置用户ID（从工作流配置或默认值获取）
+            if (request.getWorkflowConfig() != null && request.getWorkflowConfig().getUserId() != null) {
+                request.setUserId(request.getWorkflowConfig().getUserId());
+            } else {
+                request.setUserId("current_user"); // TODO: 从会话获取真实用户ID
             }
             
             return request;
@@ -237,10 +254,88 @@ public class VideoDownloadController {
     }
     
     /**
+     * 将Map转换为WorkflowConfig对象
+     */
+    @SuppressWarnings("unchecked")
+    private WorkflowConfig convertToWorkflowConfig(Map<String, Object> workflowConfigMap) {
+        WorkflowConfig.WorkflowConfigBuilder builder = WorkflowConfig.builder();
+        
+        // 基本配置
+        if (workflowConfigMap.containsKey("userId")) {
+            builder.userId((String) workflowConfigMap.get("userId"));
+        }
+        
+        if (workflowConfigMap.containsKey("enableDirectSubmission")) {
+            builder.enableDirectSubmission((Boolean) workflowConfigMap.get("enableDirectSubmission"));
+        }
+        
+        if (workflowConfigMap.containsKey("enableClipping")) {
+            builder.enableClipping((Boolean) workflowConfigMap.get("enableClipping"));
+        }
+        
+        if (workflowConfigMap.containsKey("enableMerging")) {
+            builder.enableMerging((Boolean) workflowConfigMap.get("enableMerging"));
+        }
+        
+        // 分段配置
+        if (workflowConfigMap.containsKey("segmentationConfig")) {
+            Map<String, Object> segmentationMap = (Map<String, Object>) workflowConfigMap.get("segmentationConfig");
+            SegmentationConfig segmentationConfig = convertToSegmentationConfig(segmentationMap);
+            builder.segmentationConfig(segmentationConfig);
+        }
+        
+        // 设置时间戳
+        builder.createdAt(LocalDateTime.now());
+        builder.updatedAt(LocalDateTime.now());
+        
+        return builder.build();
+    }
+    
+    /**
+     * 将Map转换为SegmentationConfig对象
+     */
+    private SegmentationConfig convertToSegmentationConfig(Map<String, Object> segmentationMap) {
+        SegmentationConfig.SegmentationConfigBuilder builder = SegmentationConfig.builder();
+        
+        if (segmentationMap.containsKey("enabled")) {
+            builder.enabled((Boolean) segmentationMap.get("enabled"));
+        }
+        
+        if (segmentationMap.containsKey("segmentDurationSeconds")) {
+            Object duration = segmentationMap.get("segmentDurationSeconds");
+            if (duration instanceof Integer) {
+                builder.segmentDurationSeconds((Integer) duration);
+            } else if (duration instanceof Double) {
+                builder.segmentDurationSeconds(((Double) duration).intValue());
+            }
+        }
+        
+        if (segmentationMap.containsKey("maxSegmentCount")) {
+            Object maxCount = segmentationMap.get("maxSegmentCount");
+            if (maxCount instanceof Integer) {
+                builder.maxSegmentCount((Integer) maxCount);
+            } else if (maxCount instanceof Double) {
+                builder.maxSegmentCount(((Double) maxCount).intValue());
+            }
+        }
+        
+        if (segmentationMap.containsKey("segmentNamingPattern")) {
+            builder.segmentNamingPattern((String) segmentationMap.get("segmentNamingPattern"));
+        }
+        
+        if (segmentationMap.containsKey("preserveOriginal")) {
+            builder.preserveOriginal((Boolean) segmentationMap.get("preserveOriginal"));
+        }
+        
+        return builder.build();
+    }
+    
+    /**
      * 转换投稿请求数据
      */
     @SuppressWarnings("unchecked")
-    private SubmissionRequestDTO convertToSubmissionRequestDTO(Map<String, Object> submissionRequestMap) {
+    private SubmissionRequestDTO convertToSubmissionRequestDTO(Map<String, Object> submissionRequestMap, 
+                                                              Map<String, Object> downloadRequestMap) {
         SubmissionRequestDTO submissionRequest = new SubmissionRequestDTO();
         
         // 基本信息
@@ -268,7 +363,7 @@ public class VideoDownloadController {
         List<Map<String, Object>> videoPartsList = (List<Map<String, Object>>) submissionRequestMap.get("videoParts");
         if (videoPartsList != null && !videoPartsList.isEmpty()) {
             List<VideoPartInfoDTO> videoParts = videoPartsList.stream()
-                .map(this::convertToVideoPartInfoDTO)
+                .map(partMap -> convertToVideoPartInfoDTO(partMap, downloadRequestMap))
                 .collect(java.util.stream.Collectors.toList());
             submissionRequest.setVideoParts(videoParts);
         }
@@ -279,12 +374,17 @@ public class VideoDownloadController {
     /**
      * 转换视频分P信息
      */
-    private VideoPartInfoDTO convertToVideoPartInfoDTO(Map<String, Object> partMap) {
+    private VideoPartInfoDTO convertToVideoPartInfoDTO(Map<String, Object> partMap, Map<String, Object> downloadRequestMap) {
         VideoPartInfoDTO partInfo = new VideoPartInfoDTO();
         
-        partInfo.setTitle((String) partMap.get("originalTitle"));
-        partInfo.setSubmissionTitle((String) partMap.get("originalTitle")); // 使用原标题作为投稿标题
-        partInfo.setExpectedFilePath((String) partMap.get("filePath"));
+        String originalTitle = (String) partMap.get("originalTitle");
+        partInfo.setTitle(originalTitle);
+        partInfo.setSubmissionTitle(originalTitle); // 使用原标题作为投稿标题
+        
+        // 修复：根据downloadPath和originalTitle构建正确的文件路径
+        String correctFilePath = buildCorrectFilePath(partMap, downloadRequestMap);
+        partInfo.setExpectedFilePath(correctFilePath);
+        partInfo.setFilePath(correctFilePath); // 设置实际文件路径
         
         // CID
         Object cid = partMap.get("cid");
@@ -292,11 +392,62 @@ public class VideoDownloadController {
             partInfo.setCid(((Number) cid).longValue());
         }
         
+        // 时间配置
+        partInfo.setStartTime((String) partMap.get("startTime"));
+        partInfo.setEndTime((String) partMap.get("endTime"));
+        
         // 其他字段设置默认值
         partInfo.setSelected(true);
         partInfo.setPartIndex(1); // 默认值，实际使用时可能需要调整
         
         return partInfo;
+    }
+    
+    /**
+     * 根据downloadPath和originalTitle构建正确的文件路径
+     */
+    private String buildCorrectFilePath(Map<String, Object> partMap, Map<String, Object> downloadRequestMap) {
+        String originalTitle = (String) partMap.get("originalTitle");
+        
+        // 从downloadRequest中获取downloadPath
+        String downloadPath = null;
+        if (downloadRequestMap != null) {
+            downloadPath = (String) downloadRequestMap.get("downloadPath");
+        }
+        
+        if (downloadPath != null && originalTitle != null) {
+            // 清理文件名中的非法字符
+            String sanitizedTitle = originalTitle.replaceAll("[\\\\/:*?\"<>|]", "_");
+            
+            // 构建完整路径：downloadPath + originalTitle
+            String filePath;
+            if (downloadPath.endsWith("/") || downloadPath.endsWith("\\")) {
+                filePath = downloadPath + sanitizedTitle;
+            } else {
+                filePath = downloadPath + "/" + sanitizedTitle;
+            }
+            
+            log.info("构建文件路径: downloadPath={}, originalTitle={}, filePath={}", 
+                    downloadPath, originalTitle, filePath);
+            
+            return filePath;
+        }
+        
+        // 如果无法构建，回退到原有逻辑
+        String fallbackPath = (String) partMap.get("filePath");
+        log.warn("无法构建正确的文件路径，使用回退路径: downloadPath={}, originalTitle={}, fallbackPath={}", 
+                downloadPath, originalTitle, fallbackPath);
+        return fallbackPath;
+    }
+    
+    /**
+     * 获取当前请求的downloadPath
+     * 这是一个临时解决方案，理想情况下应该通过参数传递
+     */
+    private String getCurrentDownloadPath() {
+        // TODO: 这里需要从当前请求上下文中获取downloadPath
+        // 由于方法签名限制，这里使用ThreadLocal或其他方式获取
+        return null; // 暂时返回null，需要进一步实现
     }
     
     /**

@@ -3,10 +3,12 @@ package com.tbw.cut.service;
 import com.tbw.cut.config.DownloadConfig;
 import com.tbw.cut.entity.DownloadTask;
 import com.tbw.cut.entity.VideoDownload;
+import com.tbw.cut.event.DownloadStatusChangeEvent;
 import com.tbw.cut.service.impl.FrontendPartDownloadServiceImpl;
 import com.tbw.cut.service.impl.VideoDownloadServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
@@ -26,6 +28,9 @@ public class DownloadTaskManager {
     
     @Autowired
     private FrontendPartDownloadService frontendPartDownloadService;
+    
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
     
     /**
      * 下载线程池
@@ -223,6 +228,16 @@ public class DownloadTaskManager {
                         completedTask.setUpdateTime(java.time.LocalDateTime.now());
                         videoDownloadService.updateById(completedTask);
                         log.info("下载任务完成: {}", task.getId());
+                        
+                        // **新增：发布下载完成事件**
+                        try {
+                            DownloadStatusChangeEvent event = DownloadStatusChangeEvent.create(task.getId(), null, 2);
+                            eventPublisher.publishEvent(event);
+                            log.info("Published download completion event: taskId={}", task.getId());
+                        } catch (Exception e) {
+                            log.error("Failed to publish download completion event: taskId={}", task.getId(), e);
+                            // 不抛出异常，避免影响主流程
+                        }
                     }
                 } else {
                     log.warn("未知的任务类型: {}", downloadTask.getClass().getName());
@@ -252,6 +267,16 @@ public class DownloadTaskManager {
                         failedTask.setStatus(3); // 失败
                         failedTask.setUpdateTime(java.time.LocalDateTime.now());
                         videoDownloadService.updateById(failedTask);
+                        
+                        // **新增：发布下载失败事件**
+                        try {
+                            DownloadStatusChangeEvent event = DownloadStatusChangeEvent.create(taskId, null, 3);
+                            eventPublisher.publishEvent(event);
+                            log.info("Published download failure event: taskId={}", taskId);
+                        } catch (Exception eventException) {
+                            log.error("Failed to publish download failure event: taskId={}", taskId, eventException);
+                            // 不抛出异常，避免影响主流程
+                        }
                     }
                 }
             } catch (Exception updateException) {

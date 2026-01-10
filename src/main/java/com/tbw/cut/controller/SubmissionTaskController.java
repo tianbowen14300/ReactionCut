@@ -32,6 +32,9 @@ public class SubmissionTaskController {
     @Autowired
     private VideoProcessService videoProcessService;
     
+    @Autowired
+    private com.tbw.cut.workflow.service.WorkflowEngine workflowEngine;
+    
     /**
      * 统一响应结果类
      */
@@ -85,7 +88,7 @@ public class SubmissionTaskController {
      * 创建投稿任务
      */
     @PostMapping
-    public Result<String> createTask(@RequestBody TaskCreationRequest request) {
+    public Result<TaskCreationResult> createTask(@RequestBody TaskCreationRequest request) {
         try {
             SubmissionTask task = request.getTask();
             List<TaskSourceVideo> sourceVideos = request.getSourceVideos();
@@ -93,10 +96,34 @@ public class SubmissionTaskController {
             // 设置默认状态
             task.setStatus(SubmissionTask.TaskStatus.PENDING);
             
+            // 创建任务
             String taskId = submissionTaskService.createTask(task, sourceVideos);
             
-            log.info("创建投稿任务成功，任务ID: {}", taskId);
-            return Result.success(taskId);
+            // 创建结果对象
+            TaskCreationResult result = new TaskCreationResult();
+            result.setTaskId(taskId);
+            
+            // 如果包含工作流配置，启动工作流
+            if (request.hasWorkflowConfig()) {
+                try {
+                    com.tbw.cut.workflow.model.WorkflowConfig workflowConfig = request.getEffectiveWorkflowConfig();
+                    com.tbw.cut.workflow.model.WorkflowInstance workflowInstance = 
+                            workflowEngine.startWorkflow(taskId, workflowConfig);
+                    
+                    result.setWorkflowInstanceId(workflowInstance.getInstanceId());
+                    result.setWorkflowStatus(workflowInstance.getStatus().toString());
+                    
+                    log.info("创建投稿任务并启动工作流成功，任务ID: {}, 工作流实例ID: {}", 
+                            taskId, workflowInstance.getInstanceId());
+                } catch (Exception workflowException) {
+                    log.warn("启动工作流失败，但任务创建成功，任务ID: {}", taskId, workflowException);
+                    result.setWorkflowError("工作流启动失败: " + workflowException.getMessage());
+                }
+            } else {
+                log.info("创建投稿任务成功（无工作流配置），任务ID: {}", taskId);
+            }
+            
+            return Result.success(result);
         } catch (Exception e) {
             log.error("创建投稿任务时发生异常", e);
             return Result.error("创建投稿任务失败: " + e.getMessage());
@@ -209,11 +236,69 @@ public class SubmissionTaskController {
     }
     
     /**
+     * 任务创建结果DTO
+     */
+    public static class TaskCreationResult {
+        private String taskId;
+        private String workflowInstanceId;
+        private String workflowStatus;
+        private String workflowError;
+        
+        // Getters and setters
+        public String getTaskId() {
+            return taskId;
+        }
+        
+        public void setTaskId(String taskId) {
+            this.taskId = taskId;
+        }
+        
+        public String getWorkflowInstanceId() {
+            return workflowInstanceId;
+        }
+        
+        public void setWorkflowInstanceId(String workflowInstanceId) {
+            this.workflowInstanceId = workflowInstanceId;
+        }
+        
+        public String getWorkflowStatus() {
+            return workflowStatus;
+        }
+        
+        public void setWorkflowStatus(String workflowStatus) {
+            this.workflowStatus = workflowStatus;
+        }
+        
+        public String getWorkflowError() {
+            return workflowError;
+        }
+        
+        public void setWorkflowError(String workflowError) {
+            this.workflowError = workflowError;
+        }
+        
+        /**
+         * 检查是否有工作流实例
+         */
+        public boolean hasWorkflowInstance() {
+            return workflowInstanceId != null && !workflowInstanceId.isEmpty();
+        }
+        
+        /**
+         * 检查工作流是否启动失败
+         */
+        public boolean hasWorkflowError() {
+            return workflowError != null && !workflowError.isEmpty();
+        }
+    }
+    
+    /**
      * 任务创建请求DTO
      */
     public static class TaskCreationRequest {
         private SubmissionTask task;
         private List<TaskSourceVideo> sourceVideos;
+        private com.tbw.cut.workflow.model.WorkflowConfig workflowConfig;
         
         // Getters and setters
         public SubmissionTask getTask() {
@@ -230,6 +315,43 @@ public class SubmissionTaskController {
         
         public void setSourceVideos(List<TaskSourceVideo> sourceVideos) {
             this.sourceVideos = sourceVideos;
+        }
+        
+        public com.tbw.cut.workflow.model.WorkflowConfig getWorkflowConfig() {
+            return workflowConfig;
+        }
+        
+        public void setWorkflowConfig(com.tbw.cut.workflow.model.WorkflowConfig workflowConfig) {
+            this.workflowConfig = workflowConfig;
+        }
+        
+        /**
+         * 检查是否包含工作流配置
+         */
+        public boolean hasWorkflowConfig() {
+            return workflowConfig != null;
+        }
+        
+        /**
+         * 获取有效的工作流配置（如果没有则返回默认配置）
+         */
+        public com.tbw.cut.workflow.model.WorkflowConfig getEffectiveWorkflowConfig() {
+            if (workflowConfig != null) {
+                return workflowConfig;
+            }
+            // 返回投稿任务的默认配置（启用分段处理）
+            return com.tbw.cut.workflow.model.WorkflowConfig.builder()
+                    .userId("current_user") // TODO: 从用户会话获取真实用户ID
+                    .enableDirectSubmission(false)
+                    .enableClipping(true)
+                    .enableMerging(true)
+                    .segmentationConfig(com.tbw.cut.workflow.model.SegmentationConfig.builder()
+                            .enabled(true)
+                            .segmentDurationSeconds(133)
+                            .maxSegmentCount(50)
+                            .preserveOriginal(true)
+                            .build())
+                    .build();
         }
     }
     
@@ -385,6 +507,434 @@ public class SubmissionTaskController {
         } catch (Exception e) {
             log.error("清空队列时发生异常", e);
             return Result.error("清空队列失败: " + e.getMessage());
+        }
+    }
+    
+    // ==================== 工作流状态监控 API ====================
+    
+    /**
+     * 获取任务的工作流状态
+     */
+    @GetMapping("/{taskId}/workflow/status")
+    public Result<WorkflowStatusResponse> getWorkflowStatus(@PathVariable("taskId") String taskId) {
+        try {
+            com.tbw.cut.workflow.model.WorkflowInstance workflowInstance = 
+                    workflowEngine.getWorkflowByTaskId(taskId);
+            
+            if (workflowInstance == null) {
+                return Result.error("该任务没有关联的工作流");
+            }
+            
+            WorkflowStatusResponse response = new WorkflowStatusResponse();
+            response.setInstanceId(workflowInstance.getInstanceId());
+            response.setTaskId(workflowInstance.getTaskId());
+            response.setStatus(workflowInstance.getStatus().name());
+            response.setStatusDescription(workflowInstance.getStatus().getDescription());
+            response.setProgress(workflowInstance.getProgress());
+            response.setStartTime(workflowInstance.getStartTime());
+            response.setEndTime(workflowInstance.getEndTime());
+            response.setErrorMessage(workflowInstance.getErrorMessage());
+            response.setCurrentStepIndex(workflowInstance.getCurrentStepIndex());
+            
+            // 转换步骤信息
+            List<WorkflowStepResponse> stepResponses = workflowInstance.getSteps().stream()
+                    .map(this::convertToStepResponse)
+                    .collect(java.util.stream.Collectors.toList());
+            response.setSteps(stepResponses);
+            
+            return Result.success(response);
+        } catch (Exception e) {
+            log.error("获取工作流状态时发生异常，任务ID: {}", taskId, e);
+            return Result.error("获取工作流状态失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 暂停工作流
+     */
+    @PostMapping("/{taskId}/workflow/pause")
+    public Result<String> pauseWorkflow(@PathVariable("taskId") String taskId) {
+        try {
+            com.tbw.cut.workflow.model.WorkflowInstance workflowInstance = 
+                    workflowEngine.getWorkflowByTaskId(taskId);
+            
+            if (workflowInstance == null) {
+                return Result.error("该任务没有关联的工作流");
+            }
+            
+            boolean success = workflowEngine.pauseWorkflow(workflowInstance.getInstanceId());
+            
+            if (success) {
+                log.info("工作流暂停成功，任务ID: {}, 工作流ID: {}", taskId, workflowInstance.getInstanceId());
+                return Result.success("工作流已暂停");
+            } else {
+                return Result.error("工作流暂停失败，可能工作流未在运行");
+            }
+        } catch (Exception e) {
+            log.error("暂停工作流时发生异常，任务ID: {}", taskId, e);
+            return Result.error("暂停工作流失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 恢复工作流
+     */
+    @PostMapping("/{taskId}/workflow/resume")
+    public Result<String> resumeWorkflow(@PathVariable("taskId") String taskId) {
+        try {
+            com.tbw.cut.workflow.model.WorkflowInstance workflowInstance = 
+                    workflowEngine.getWorkflowByTaskId(taskId);
+            
+            if (workflowInstance == null) {
+                return Result.error("该任务没有关联的工作流");
+            }
+            
+            boolean success = workflowEngine.resumeWorkflow(workflowInstance.getInstanceId());
+            
+            if (success) {
+                log.info("工作流恢复成功，任务ID: {}, 工作流ID: {}", taskId, workflowInstance.getInstanceId());
+                return Result.success("工作流已恢复");
+            } else {
+                return Result.error("工作流恢复失败，可能工作流未暂停");
+            }
+        } catch (Exception e) {
+            log.error("恢复工作流时发生异常，任务ID: {}", taskId, e);
+            return Result.error("恢复工作流失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 取消工作流
+     */
+    @PostMapping("/{taskId}/workflow/cancel")
+    public Result<String> cancelWorkflow(@PathVariable("taskId") String taskId) {
+        try {
+            com.tbw.cut.workflow.model.WorkflowInstance workflowInstance = 
+                    workflowEngine.getWorkflowByTaskId(taskId);
+            
+            if (workflowInstance == null) {
+                return Result.error("该任务没有关联的工作流");
+            }
+            
+            boolean success = workflowEngine.cancelWorkflow(workflowInstance.getInstanceId());
+            
+            if (success) {
+                log.info("工作流取消成功，任务ID: {}, 工作流ID: {}", taskId, workflowInstance.getInstanceId());
+                return Result.success("工作流已取消");
+            } else {
+                return Result.error("工作流取消失败，可能工作流已完成");
+            }
+        } catch (Exception e) {
+            log.error("取消工作流时发生异常，任务ID: {}", taskId, e);
+            return Result.error("取消工作流失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 获取所有活跃的工作流
+     */
+    @GetMapping("/workflow/active")
+    public Result<List<WorkflowStatusResponse>> getActiveWorkflows() {
+        try {
+            List<com.tbw.cut.workflow.model.WorkflowInstance> activeWorkflows = 
+                    workflowEngine.getActiveWorkflows();
+            
+            List<WorkflowStatusResponse> responses = activeWorkflows.stream()
+                    .map(this::convertToWorkflowStatusResponse)
+                    .collect(java.util.stream.Collectors.toList());
+            
+            return Result.success(responses);
+        } catch (Exception e) {
+            log.error("获取活跃工作流时发生异常", e);
+            return Result.error("获取活跃工作流失败: " + e.getMessage());
+        }
+    }
+    
+    // ==================== 响应DTO类 ====================
+    
+    /**
+     * 工作流状态响应DTO
+     */
+    public static class WorkflowStatusResponse {
+        private String instanceId;
+        private String taskId;
+        private String status;
+        private String statusDescription;
+        private int progress;
+        private java.time.LocalDateTime startTime;
+        private java.time.LocalDateTime endTime;
+        private String errorMessage;
+        private int currentStepIndex;
+        private List<WorkflowStepResponse> steps;
+        
+        // Getters and setters
+        public String getInstanceId() {
+            return instanceId;
+        }
+        
+        public void setInstanceId(String instanceId) {
+            this.instanceId = instanceId;
+        }
+        
+        public String getTaskId() {
+            return taskId;
+        }
+        
+        public void setTaskId(String taskId) {
+            this.taskId = taskId;
+        }
+        
+        public String getStatus() {
+            return status;
+        }
+        
+        public void setStatus(String status) {
+            this.status = status;
+        }
+        
+        public String getStatusDescription() {
+            return statusDescription;
+        }
+        
+        public void setStatusDescription(String statusDescription) {
+            this.statusDescription = statusDescription;
+        }
+        
+        public int getProgress() {
+            return progress;
+        }
+        
+        public void setProgress(int progress) {
+            this.progress = progress;
+        }
+        
+        public java.time.LocalDateTime getStartTime() {
+            return startTime;
+        }
+        
+        public void setStartTime(java.time.LocalDateTime startTime) {
+            this.startTime = startTime;
+        }
+        
+        public java.time.LocalDateTime getEndTime() {
+            return endTime;
+        }
+        
+        public void setEndTime(java.time.LocalDateTime endTime) {
+            this.endTime = endTime;
+        }
+        
+        public String getErrorMessage() {
+            return errorMessage;
+        }
+        
+        public void setErrorMessage(String errorMessage) {
+            this.errorMessage = errorMessage;
+        }
+        
+        public int getCurrentStepIndex() {
+            return currentStepIndex;
+        }
+        
+        public void setCurrentStepIndex(int currentStepIndex) {
+            this.currentStepIndex = currentStepIndex;
+        }
+        
+        public List<WorkflowStepResponse> getSteps() {
+            return steps;
+        }
+        
+        public void setSteps(List<WorkflowStepResponse> steps) {
+            this.steps = steps;
+        }
+    }
+    
+    /**
+     * 工作流步骤响应DTO
+     */
+    public static class WorkflowStepResponse {
+        private String stepId;
+        private String type;
+        private String typeDescription;
+        private String status;
+        private String statusDescription;
+        private java.time.LocalDateTime startTime;
+        private java.time.LocalDateTime endTime;
+        private String inputPath;
+        private String outputPath;
+        private String errorMessage;
+        private Long durationMs;
+        
+        // Getters and setters
+        public String getStepId() {
+            return stepId;
+        }
+        
+        public void setStepId(String stepId) {
+            this.stepId = stepId;
+        }
+        
+        public String getType() {
+            return type;
+        }
+        
+        public void setType(String type) {
+            this.type = type;
+        }
+        
+        public String getTypeDescription() {
+            return typeDescription;
+        }
+        
+        public void setTypeDescription(String typeDescription) {
+            this.typeDescription = typeDescription;
+        }
+        
+        public String getStatus() {
+            return status;
+        }
+        
+        public void setStatus(String status) {
+            this.status = status;
+        }
+        
+        public String getStatusDescription() {
+            return statusDescription;
+        }
+        
+        public void setStatusDescription(String statusDescription) {
+            this.statusDescription = statusDescription;
+        }
+        
+        public java.time.LocalDateTime getStartTime() {
+            return startTime;
+        }
+        
+        public void setStartTime(java.time.LocalDateTime startTime) {
+            this.startTime = startTime;
+        }
+        
+        public java.time.LocalDateTime getEndTime() {
+            return endTime;
+        }
+        
+        public void setEndTime(java.time.LocalDateTime endTime) {
+            this.endTime = endTime;
+        }
+        
+        public String getInputPath() {
+            return inputPath;
+        }
+        
+        public void setInputPath(String inputPath) {
+            this.inputPath = inputPath;
+        }
+        
+        public String getOutputPath() {
+            return outputPath;
+        }
+        
+        public void setOutputPath(String outputPath) {
+            this.outputPath = outputPath;
+        }
+        
+        public String getErrorMessage() {
+            return errorMessage;
+        }
+        
+        public void setErrorMessage(String errorMessage) {
+            this.errorMessage = errorMessage;
+        }
+        
+        public Long getDurationMs() {
+            return durationMs;
+        }
+        
+        public void setDurationMs(Long durationMs) {
+            this.durationMs = durationMs;
+        }
+    }
+    
+    // ==================== 辅助方法 ====================
+    
+    /**
+     * 转换工作流实例为响应DTO
+     */
+    private WorkflowStatusResponse convertToWorkflowStatusResponse(com.tbw.cut.workflow.model.WorkflowInstance instance) {
+        WorkflowStatusResponse response = new WorkflowStatusResponse();
+        response.setInstanceId(instance.getInstanceId());
+        response.setTaskId(instance.getTaskId());
+        response.setStatus(instance.getStatus().name());
+        response.setStatusDescription(instance.getStatus().getDescription());
+        response.setProgress(instance.getProgress());
+        response.setStartTime(instance.getStartTime());
+        response.setEndTime(instance.getEndTime());
+        response.setErrorMessage(instance.getErrorMessage());
+        response.setCurrentStepIndex(instance.getCurrentStepIndex());
+        
+        List<WorkflowStepResponse> stepResponses = instance.getSteps().stream()
+                .map(this::convertToStepResponse)
+                .collect(java.util.stream.Collectors.toList());
+        response.setSteps(stepResponses);
+        
+        return response;
+    }
+    
+    /**
+     * 转换工作流步骤为响应DTO
+     */
+    private WorkflowStepResponse convertToStepResponse(com.tbw.cut.workflow.model.WorkflowStep step) {
+        WorkflowStepResponse response = new WorkflowStepResponse();
+        response.setStepId(step.getStepId());
+        response.setType(step.getType().name());
+        response.setTypeDescription(getStepTypeDescription(step.getType()));
+        response.setStatus(step.getStatus().name());
+        response.setStatusDescription(getStepStatusDescription(step.getStatus()));
+        response.setStartTime(step.getStartTime());
+        response.setEndTime(step.getEndTime());
+        response.setInputPath(step.getInputPath());
+        response.setOutputPath(step.getOutputPath());
+        response.setErrorMessage(step.getErrorMessage());
+        response.setDurationMs(step.getDurationMs());
+        
+        return response;
+    }
+    
+    /**
+     * 获取步骤类型描述
+     */
+    private String getStepTypeDescription(com.tbw.cut.workflow.model.StepType stepType) {
+        switch (stepType) {
+            case CLIPPING:
+                return "视频剪辑";
+            case MERGING:
+                return "视频合并";
+            case SEGMENTATION:
+                return "视频分段";
+            case SUBMISSION:
+                return "视频投稿";
+            default:
+                return stepType.name();
+        }
+    }
+    
+    /**
+     * 获取步骤状态描述
+     */
+    private String getStepStatusDescription(com.tbw.cut.workflow.model.StepStatus stepStatus) {
+        switch (stepStatus) {
+            case PENDING:
+                return "待执行";
+            case RUNNING:
+                return "执行中";
+            case COMPLETED:
+                return "已完成";
+            case FAILED:
+                return "执行失败";
+            case SKIPPED:
+                return "已跳过";
+            default:
+                return stepStatus.name();
         }
     }
 }

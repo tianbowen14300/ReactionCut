@@ -13,6 +13,11 @@ import com.tbw.cut.service.StatusSyncService;
 import com.tbw.cut.service.SubmissionTaskService;
 import com.tbw.cut.service.VideoDownloadService;
 import com.tbw.cut.service.FrontendVideoDownloadService;
+import com.tbw.cut.service.WorkflowConfigurationService;
+import com.tbw.cut.service.TaskRelationService;
+import com.tbw.cut.workflow.service.WorkflowEngine;
+import com.tbw.cut.workflow.model.WorkflowInstance;
+import com.tbw.cut.workflow.model.WorkflowConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
@@ -50,11 +55,20 @@ public class IntegrationServiceImpl implements IntegrationService {
     @Autowired
     private ApplicationEventPublisher eventPublisher;
     
+    @Autowired
+    private WorkflowEngine workflowEngine;
+    
+    @Autowired
+    private WorkflowConfigurationService workflowConfigurationService;
+    
+    @Autowired
+    private TaskRelationService taskRelationService;
+    
     @Override
     @Transactional(rollbackFor = Exception.class)
     public IntegrationResult processIntegratedRequest(IntegrationRequest request) {
-        log.info("Processing integration request: enableSubmission={}, userId={}", 
-                request.getEnableSubmission(), request.getUserId());
+        log.info("Processing integration request: enableSubmission={}, userId={}, hasWorkflowConfig={}", 
+                request.getEnableSubmission(), request.getUserId(), request.hasWorkflowConfig());
         
         try {
             // 验证请求
@@ -62,29 +76,12 @@ public class IntegrationServiceImpl implements IntegrationService {
                 return IntegrationResult.failure("下载请求不能为空", "INVALID_DOWNLOAD_REQUEST");
             }
             
-            // 创建下载任务 - 优先使用原始前端数据
-            Long downloadTaskId;
-            if (request.getDownloadRequestRaw() != null) {
-                downloadTaskId = frontendVideoDownloadService.handleFrontendDownloadRequest(request.getDownloadRequestRaw());
+            // 检查是否使用工作流引擎
+            if (request.hasWorkflowConfig()) {
+                return processWithWorkflowEngine(request);
             } else {
-                downloadTaskId = createDownloadTaskUsingFrontendService(request.getDownloadRequest());
+                return processWithLegacyMethod(request);
             }
-            log.info("Created download task with ID: {}", downloadTaskId);
-            
-            // 如果不启用投稿功能，只返回下载任务结果
-            if (!request.isValidIntegrationRequest()) {
-                return IntegrationResult.downloadOnlySuccess(downloadTaskId);
-            }
-            
-            // 创建投稿任务
-            String submissionTaskId = createSubmissionTask(request.getSubmissionRequest(), downloadTaskId);
-            log.info("Created submission task with ID: {}", submissionTaskId);
-            
-            // 创建任务关联
-            Long relationId = createTaskRelation(downloadTaskId, submissionTaskId);
-            log.info("Created task relation with ID: {}", relationId);
-            
-            return IntegrationResult.success(downloadTaskId, submissionTaskId, relationId);
             
         } catch (DownloadTaskCreationException e) {
             log.error("Failed to create download task", e);
@@ -98,15 +95,92 @@ public class IntegrationServiceImpl implements IntegrationService {
         } catch (TaskRelationCreationException e) {
             log.error("Failed to create task relation", e);
             // 检查是否是外键约束违反
-            if (e.getMessage().contains("foreign key constraint")) {
-                throw new IntegrationException("任务关联创建失败: 下载任务或投稿任务不存在", "FOREIGN_KEY_CONSTRAINT_VIOLATION", e);
+            if (e.getCause() != null && e.getCause().getMessage().contains("foreign key constraint")) {
+                throw new IntegrationException("任务关联创建失败，可能是下载任务或投稿任务不存在: " + e.getMessage(), "FOREIGN_KEY_CONSTRAINT_VIOLATION", e);
             } else {
                 throw new IntegrationException("任务关联创建失败: " + e.getMessage(), "TASK_RELATION_CREATION_FAILED", e);
             }
         } catch (Exception e) {
-            log.error("Unexpected error during integration processing", e);
-            throw new IntegrationException("系统错误，请稍后重试", "SYSTEM_ERROR", e);
+            log.error("Integration processing failed", e);
+            throw new IntegrationException("集成处理失败: " + e.getMessage(), "INTEGRATION_PROCESSING_FAILED", e);
         }
+    }
+    
+    /**
+     * 使用工作流引擎处理集成请求
+     */
+    private IntegrationResult processWithWorkflowEngine(IntegrationRequest request) {
+        log.info("Processing integration request with workflow engine");
+        
+        // 验证工作流配置
+        if (request.hasWorkflowConfig()) {
+            WorkflowConfig workflowConfig = request.getWorkflowConfig();
+            if (!workflowConfig.isValid()) {
+                String errorMessage = "工作流配置验证失败: " + workflowConfig.getValidationError();
+                log.error(errorMessage);
+                throw new IntegrationException(errorMessage, "INVALID_WORKFLOW_CONFIG");
+            }
+        }
+        
+        // 创建下载任务 - 优先使用原始前端数据
+        Long downloadTaskId;
+        if (request.getDownloadRequestRaw() != null) {
+            downloadTaskId = frontendVideoDownloadService.handleFrontendDownloadRequest(request.getDownloadRequestRaw());
+        } else {
+            downloadTaskId = createDownloadTaskUsingFrontendService(request.getDownloadRequest());
+        }
+        log.info("Created download task with ID: {}", downloadTaskId);
+        
+        // 如果不启用投稿功能，只返回下载任务结果
+        if (!request.isValidIntegrationRequest()) {
+            return IntegrationResult.downloadOnlySuccess(downloadTaskId);
+        }
+        
+        // 创建投稿任务
+        String submissionTaskId = createSubmissionTask(request.getSubmissionRequest(), downloadTaskId);
+        log.info("Created submission task with ID: {}", submissionTaskId);
+        
+        // 创建任务关联
+        Long relationId = createTaskRelation(downloadTaskId, submissionTaskId);
+        log.info("Created task relation with ID: {}", relationId);
+        
+        // 保存工作流配置，等待下载完成后启动
+        workflowConfigurationService.saveConfigForTask(submissionTaskId, request.getEffectiveWorkflowConfig());
+        
+        // 修改：不立即启动工作流，而是返回等待状态
+        log.info("工作流配置已保存，等待下载完成后启动: submissionTaskId={}", submissionTaskId);
+        return IntegrationResult.successWithPendingWorkflow(downloadTaskId, submissionTaskId, relationId);
+    }
+    
+    /**
+     * 使用传统方法处理集成请求（向后兼容）
+     */
+    private IntegrationResult processWithLegacyMethod(IntegrationRequest request) {
+        log.info("Processing integration request with legacy method");
+        
+        // 创建下载任务 - 优先使用原始前端数据
+        Long downloadTaskId;
+        if (request.getDownloadRequestRaw() != null) {
+            downloadTaskId = frontendVideoDownloadService.handleFrontendDownloadRequest(request.getDownloadRequestRaw());
+        } else {
+            downloadTaskId = createDownloadTaskUsingFrontendService(request.getDownloadRequest());
+        }
+        log.info("Created download task with ID: {}", downloadTaskId);
+        
+        // 如果不启用投稿功能，只返回下载任务结果
+        if (!request.isValidIntegrationRequest()) {
+            return IntegrationResult.downloadOnlySuccess(downloadTaskId);
+        }
+        
+        // 创建投稿任务
+        String submissionTaskId = createSubmissionTask(request.getSubmissionRequest(), downloadTaskId);
+        log.info("Created submission task with ID: {}", submissionTaskId);
+        
+        // 创建任务关联
+        Long relationId = createTaskRelation(downloadTaskId, submissionTaskId);
+        log.info("Created task relation with ID: {}", relationId);
+        
+        return IntegrationResult.success(downloadTaskId, submissionTaskId, relationId);
     }
     
     @Override
@@ -117,9 +191,9 @@ public class IntegrationServiceImpl implements IntegrationService {
             // 使用状态同步服务处理状态变化
             statusSyncService.syncDownloadStatusToSubmission(downloadTaskId, downloadStatus);
             
-            // 发布状态变化事件
-            DownloadStatusChangeEvent event = DownloadStatusChangeEvent.create(downloadTaskId, null, downloadStatus);
-            eventPublisher.publishEvent(event);
+            // 注意：不在这里发布事件，因为事件已经由下载服务发布，
+            // 我们现在正在处理该事件，再次发布会造成无限循环
+            log.debug("Successfully synced task status for download task: {}", downloadTaskId);
             
         } catch (Exception e) {
             log.error("Failed to sync status for download task: {}", downloadTaskId, e);
@@ -310,15 +384,19 @@ public class IntegrationServiceImpl implements IntegrationService {
     
     /**
      * 创建任务关联
+     * 修复：为所有相关的分P下载记录创建关联
      */
     private Long createTaskRelation(Long downloadTaskId, String submissionTaskId) {
         try {
+            log.info("开始创建任务关联: downloadTaskId={}, submissionTaskId={}", downloadTaskId, submissionTaskId);
+            
             // 验证下载任务是否存在
             VideoDownload downloadTask = videoDownloadService.getById(downloadTaskId);
             if (downloadTask == null) {
                 log.error("下载任务不存在，无法创建关联: downloadTaskId={}", downloadTaskId);
                 throw new TaskRelationCreationException("下载任务不存在: " + downloadTaskId, null);
             }
+            log.debug("下载任务验证通过: downloadTaskId={}, title={}", downloadTaskId, downloadTask.getTitle());
             
             // 验证投稿任务是否存在
             SubmissionTask submissionTask = submissionTaskService.getTaskDetail(submissionTaskId);
@@ -326,24 +404,97 @@ public class IntegrationServiceImpl implements IntegrationService {
                 log.error("投稿任务不存在，无法创建关联: submissionTaskId={}", submissionTaskId);
                 throw new TaskRelationCreationException("投稿任务不存在: " + submissionTaskId, null);
             }
+            log.debug("投稿任务验证通过: submissionTaskId={}, title={}", submissionTaskId, submissionTask.getTitle());
             
-            log.info("验证通过，创建任务关联: downloadTaskId={}, submissionTaskId={}", downloadTaskId, submissionTaskId);
+            // 查找所有相关的分P下载记录
+            List<VideoDownload> relatedDownloads = findRelatedDownloads(downloadTask);
+            log.info("找到相关下载记录数量: {}", relatedDownloads.size());
             
-            TaskRelation relation = TaskRelation.createIntegratedRelation(downloadTaskId, submissionTaskId);
-            relation.setCreatedAt(LocalDateTime.now());
-            relation.setUpdatedAt(LocalDateTime.now());
-            taskRelationMapper.insert(relation);
+            Long firstRelationId = null;
+            int createdCount = 0;
             
-            log.info("成功创建任务关联: relationId={}, downloadTaskId={}, submissionTaskId={}", 
-                    relation.getId(), downloadTaskId, submissionTaskId);
+            // 为每个相关的下载记录创建任务关联
+            for (VideoDownload relatedDownload : relatedDownloads) {
+                try {
+                    // 检查是否已存在关联
+                    Optional<TaskRelation> existingRelation = taskRelationMapper.findByDownloadAndSubmissionTaskId(
+                            relatedDownload.getId(), submissionTaskId);
+                    if (existingRelation.isPresent()) {
+                        log.warn("任务关联已存在: downloadTaskId={}, submissionTaskId={}, relationId={}", 
+                                relatedDownload.getId(), submissionTaskId, existingRelation.get().getId());
+                        if (firstRelationId == null) {
+                            firstRelationId = existingRelation.get().getId();
+                        }
+                        continue;
+                    }
+                    
+                    // 创建关联关系
+                    TaskRelation relation = TaskRelation.createIntegratedRelation(relatedDownload.getId(), submissionTaskId);
+                    
+                    // 插入数据库
+                    int insertResult = taskRelationMapper.insert(relation);
+                    if (insertResult <= 0) {
+                        log.error("插入任务关联失败: downloadTaskId={}, submissionTaskId={}", 
+                                relatedDownload.getId(), submissionTaskId);
+                        continue;
+                    }
+                    
+                    log.info("成功创建任务关联: relationId={}, downloadTaskId={}, submissionTaskId={}", 
+                            relation.getId(), relatedDownload.getId(), submissionTaskId);
+                    
+                    if (firstRelationId == null) {
+                        firstRelationId = relation.getId();
+                    }
+                    createdCount++;
+                    
+                } catch (Exception e) {
+                    log.error("创建单个任务关联失败: downloadTaskId={}, submissionTaskId={}", 
+                            relatedDownload.getId(), submissionTaskId, e);
+                    // 继续处理其他关联，不中断整个流程
+                }
+            }
             
-            return relation.getId();
+            if (createdCount == 0 && firstRelationId == null) {
+                throw new TaskRelationCreationException("未能创建任何任务关联", null);
+            }
+            
+            log.info("任务关联创建完成: 总共创建了{}个关联，返回第一个关联ID: {}", createdCount, firstRelationId);
+            return firstRelationId;
+            
         } catch (TaskRelationCreationException e) {
+            log.error("任务关联创建异常: {}", e.getMessage(), e);
             throw e; // 重新抛出自定义异常
         } catch (Exception e) {
-            log.error("创建任务关联时发生异常: downloadTaskId={}, submissionTaskId={}", 
+            log.error("创建任务关联时发生未知异常: downloadTaskId={}, submissionTaskId={}", 
                     downloadTaskId, submissionTaskId, e);
             throw new TaskRelationCreationException("Failed to create task relation: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 查找所有相关的下载记录
+     * 包括主下载记录和所有同一视频的分P记录
+     */
+    private List<VideoDownload> findRelatedDownloads(VideoDownload mainDownload) {
+        try {
+            // 查找同一视频的所有下载记录
+            List<VideoDownload> relatedDownloads = videoDownloadService.findRecentDownloads(
+                    mainDownload.getBvid(), mainDownload.getTitle(), 50);
+            
+            // 过滤出真正相关的记录（同一时间段内创建的）
+            LocalDateTime cutoffTime = mainDownload.getCreateTime().minusMinutes(5); // 5分钟内创建的记录
+            List<VideoDownload> filteredDownloads = relatedDownloads.stream()
+                    .filter(download -> download.getCreateTime().isAfter(cutoffTime))
+                    .collect(java.util.stream.Collectors.toList());
+            
+            log.debug("找到相关下载记录: 总数={}, 过滤后={}", relatedDownloads.size(), filteredDownloads.size());
+            
+            return filteredDownloads;
+            
+        } catch (Exception e) {
+            log.error("查找相关下载记录失败", e);
+            // 如果查找失败，至少返回主下载记录
+            return java.util.Arrays.asList(mainDownload);
         }
     }
     
@@ -551,6 +702,58 @@ public class IntegrationServiceImpl implements IntegrationService {
                 return getMessage();
             }
             return getMessage() + " Details: " + String.join("; ", validationErrors);
+        }
+    }
+    
+    /**
+     * 更新工作流状态
+     * 
+     * @param downloadTaskId 下载任务ID
+     * @param submissionTaskId 投稿任务ID
+     * @param workflowInstanceId 工作流实例ID
+     * @param status 状态
+     */
+    public void updateWorkflowStatus(Long downloadTaskId, String submissionTaskId, 
+                                    String workflowInstanceId, String status) {
+        try {
+            // 更新任务关联表中的工作流信息
+            boolean updated = taskRelationService.updateWorkflowInfo(downloadTaskId, submissionTaskId, workflowInstanceId, status);
+            
+            if (updated) {
+                log.info("工作流状态已更新: downloadTaskId={}, submissionTaskId={}, instanceId={}, status={}", 
+                        downloadTaskId, submissionTaskId, workflowInstanceId, status);
+            } else {
+                log.warn("工作流状态更新失败，可能任务关联不存在: downloadTaskId={}, submissionTaskId={}", 
+                        downloadTaskId, submissionTaskId);
+            }
+        } catch (Exception e) {
+            log.error("更新工作流状态失败: downloadTaskId={}, submissionTaskId={}, instanceId={}, status={}", 
+                    downloadTaskId, submissionTaskId, workflowInstanceId, status, e);
+        }
+    }
+    
+    /**
+     * 标记工作流启动失败
+     * 
+     * @param downloadTaskId 下载任务ID
+     * @param submissionTaskId 投稿任务ID
+     * @param errorMessage 错误信息
+     */
+    public void markWorkflowStartupFailed(Long downloadTaskId, String submissionTaskId, String errorMessage) {
+        try {
+            // 更新任务关联表中的工作流信息
+            boolean updated = taskRelationService.updateWorkflowInfo(downloadTaskId, submissionTaskId, null, "WORKFLOW_STARTUP_FAILED");
+            
+            if (updated) {
+                log.error("工作流启动失败已标记: downloadTaskId={}, submissionTaskId={}, error={}", 
+                        downloadTaskId, submissionTaskId, errorMessage);
+            } else {
+                log.warn("标记工作流启动失败时更新失败，可能任务关联不存在: downloadTaskId={}, submissionTaskId={}", 
+                        downloadTaskId, submissionTaskId);
+            }
+        } catch (Exception e) {
+            log.error("标记工作流启动失败时出错: downloadTaskId={}, submissionTaskId={}, originalError={}", 
+                    downloadTaskId, submissionTaskId, errorMessage, e);
         }
     }
 }

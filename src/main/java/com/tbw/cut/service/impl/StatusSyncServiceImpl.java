@@ -3,10 +3,12 @@ package com.tbw.cut.service.impl;
 import com.tbw.cut.entity.SubmissionTask;
 import com.tbw.cut.entity.TaskRelation;
 import com.tbw.cut.entity.VideoDownload;
+import com.tbw.cut.mapper.TaskRelationMapper;
 import com.tbw.cut.service.StatusSyncService;
 import com.tbw.cut.service.SubmissionTaskService;
 import com.tbw.cut.service.TaskRelationService;
 import com.tbw.cut.service.VideoDownloadService;
+import com.tbw.cut.service.WorkflowStepProgressService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -34,6 +36,12 @@ public class StatusSyncServiceImpl implements StatusSyncService {
     
     @Autowired
     private SubmissionTaskService submissionTaskService;
+    
+    @Autowired
+    private WorkflowStepProgressService workflowStepProgressService;
+    
+    @Autowired
+    private TaskRelationMapper taskRelationMapper;
     
     /**
      * 状态同步开关，可通过配置文件控制
@@ -89,11 +97,29 @@ public class StatusSyncServiceImpl implements StatusSyncService {
         try {
             Optional<TaskRelation> relationOpt = taskRelationService.findByDownloadTaskId(downloadTaskId);
             if (!relationOpt.isPresent()) {
-                log.debug("No active relation found for download task: {}", downloadTaskId);
+                log.debug("No active relation found for download task: {} - this is likely a standalone download", downloadTaskId);
+                
+                // 额外检查：查询数据库确认是否真的没有关联
+                log.debug("Double-checking task relation in database for downloadTaskId: {}", downloadTaskId);
+                try {
+                    Optional<TaskRelation> directCheck = taskRelationMapper.findByDownloadTaskId(downloadTaskId);
+                    if (directCheck.isPresent()) {
+                        log.warn("Found relation via direct database query but not via service: downloadTaskId={}, relationId={}, status={}", 
+                                downloadTaskId, directCheck.get().getId(), directCheck.get().getStatus());
+                    } else {
+                        log.debug("Confirmed: no relation exists for downloadTaskId: {}", downloadTaskId);
+                    }
+                } catch (Exception e) {
+                    log.error("Error during direct database check for downloadTaskId: {}", downloadTaskId, e);
+                }
+                
                 return;
             }
             
             TaskRelation relation = relationOpt.get();
+            log.debug("Found task relation for download task {}: submissionTaskId={}, relationStatus={}", 
+                    downloadTaskId, relation.getSubmissionTaskId(), relation.getStatus());
+            
             SubmissionTask.TaskStatus newSubmissionStatus = mapDownloadStatusToSubmissionStatus(downloadStatus);
             
             if (newSubmissionStatus != null) {
@@ -104,6 +130,18 @@ public class StatusSyncServiceImpl implements StatusSyncService {
                 
                 // 更新关联状态
                 updateRelationStatus(relation, downloadStatus, newSubmissionStatus);
+            }
+            
+            // **新增：处理工作流步骤进度更新**
+            // 当下载完成时，更新相应的工作流步骤状态
+            if (downloadStatus == 2 || downloadStatus == 3) { // 完成或失败
+                boolean workflowUpdated = workflowStepProgressService.handleDownloadCompletion(downloadTaskId, downloadStatus);
+                if (workflowUpdated) {
+                    log.info("Successfully updated workflow step for download completion: downloadTaskId={}, status={}", 
+                            downloadTaskId, downloadStatus);
+                } else {
+                    log.debug("No workflow found or failed to update workflow step for download task: {}", downloadTaskId);
+                }
             }
             
         } catch (Exception e) {

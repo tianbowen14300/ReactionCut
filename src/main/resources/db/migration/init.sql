@@ -173,6 +173,11 @@ CREATE TABLE `task_relations` (
     `status` ENUM('ACTIVE', 'COMPLETED', 'FAILED') NOT NULL DEFAULT 'ACTIVE' COMMENT '关联状态：ACTIVE-活跃，COMPLETED-已完成，FAILED-失败',
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `workflow_instance_id` VARCHAR(100) DEFAULT NULL COMMENT '工作流实例ID',
+    `workflow_status` ENUM('PENDING_DOWNLOAD', 'WORKFLOW_STARTED', 'WORKFLOW_RUNNING', 'WORKFLOW_COMPLETED', 'WORKFLOW_FAILED', 'WORKFLOW_STARTUP_FAILED') DEFAULT 'PENDING_DOWNLOAD' COMMENT '工作流状态',
+    `workflow_started_at` TIMESTAMP NULL DEFAULT NULL COMMENT '工作流启动时间',
+    `last_error_message` TEXT DEFAULT NULL COMMENT '最后错误信息',
+    `retry_count` INT DEFAULT 0 COMMENT '重试次数',
     
     PRIMARY KEY (`id`),
     
@@ -191,6 +196,8 @@ CREATE TABLE `task_relations` (
     KEY `idx_task_relations_download_id` (`download_task_id`),
     KEY `idx_task_relations_submission_id` (`submission_task_id`),
     KEY `idx_task_relations_status` (`status`),
-    KEY `idx_task_relations_created_at` (`created_at`)
+    KEY `idx_task_relations_created_at` (`created_at`),
+    KEY `idx_task_relations_workflow_status` (`workflow_status`),
+    KEY `idx_task_relations_workflow_instance_id` (`workflow_instance_id`)
     
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='任务关联表 - 管理下载任务与投稿任务的关联关系';

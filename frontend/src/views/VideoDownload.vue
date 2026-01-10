@@ -193,6 +193,104 @@
           :close-on-click-modal="false"
         >
           <el-tabs v-model="integrationActiveTab" type="card">
+            <!-- 工作流配置标签页 -->
+            <el-tab-pane label="工作流配置" name="workflow">
+              <el-form :model="workflowConfig" label-width="120px">
+                <el-form-item label="处理模式">
+                  <el-radio-group v-model="workflowConfig.enableDirectSubmission">
+                    <el-radio :label="true">直接投稿</el-radio>
+                    <el-radio :label="false">分段处理后投稿</el-radio>
+                  </el-radio-group>
+                  <div style="font-size: 12px; color: #999; margin-top: 5px;">
+                    直接投稿：下载完成后直接进行投稿<br>
+                    分段处理：将视频分割为多个片段后再投稿
+                  </div>
+                </el-form-item>
+                
+                <!-- 分段配置 -->
+                <div v-if="!workflowConfig.enableDirectSubmission" class="segmentation-config">
+                  <el-form-item label="分段时长">
+                    <el-input-number
+                      v-model="workflowConfig.segmentationConfig.segmentDurationSeconds"
+                      :min="30"
+                      :max="600"
+                      :step="1"
+                      controls-position="right"
+                      style="width: 200px;"
+                    ></el-input-number>
+                    <span style="margin-left: 10px; color: #666;">秒</span>
+                    <div style="font-size: 12px; color: #999; margin-top: 5px;">
+                      推荐：133秒（2分13秒），范围：30-600秒
+                    </div>
+                  </el-form-item>
+                  
+                  <el-form-item label="最大分段数">
+                    <el-input-number
+                      v-model="workflowConfig.segmentationConfig.maxSegmentCount"
+                      :min="1"
+                      :max="100"
+                      :step="1"
+                      controls-position="right"
+                      style="width: 200px;"
+                    ></el-input-number>
+                    <span style="margin-left: 10px; color: #666;">个</span>
+                    <div style="font-size: 12px; color: #999; margin-top: 5px;">
+                      超过此数量的分段将被合并
+                    </div>
+                  </el-form-item>
+                  
+                  <el-form-item label="保留原文件">
+                    <el-switch
+                      v-model="workflowConfig.segmentationConfig.preserveOriginal"
+                      active-text="保留"
+                      inactive-text="删除"
+                    ></el-switch>
+                    <div style="font-size: 12px; color: #999; margin-top: 5px;">
+                      是否在分段完成后保留原始合并文件
+                    </div>
+                  </el-form-item>
+                </div>
+                
+                <!-- 处理步骤配置 -->
+                <el-form-item label="处理步骤">
+                  <el-checkbox-group v-model="enabledProcessingSteps">
+                    <el-checkbox label="clipping" :disabled="true">视频剪辑</el-checkbox>
+                    <el-checkbox label="merging" :disabled="true">视频合并</el-checkbox>
+                    <el-checkbox 
+                      label="segmentation" 
+                      :disabled="workflowConfig.enableDirectSubmission"
+                    >
+                      视频分段
+                    </el-checkbox>
+                  </el-checkbox-group>
+                  <div style="font-size: 12px; color: #999; margin-top: 5px;">
+                    剪辑和合并步骤始终启用，分段步骤根据处理模式自动控制
+                  </div>
+                </el-form-item>
+                
+                <!-- 配置预览 -->
+                <el-form-item label="配置预览">
+                  <div class="workflow-preview">
+                    <div class="preview-item">
+                      <span class="preview-label">处理流程：</span>
+                      <span class="preview-value">
+                        下载 → 剪辑 → 合并
+                        <span v-if="!workflowConfig.enableDirectSubmission"> → 分段</span>
+                        → 投稿
+                      </span>
+                    </div>
+                    <div v-if="!workflowConfig.enableDirectSubmission" class="preview-item">
+                      <span class="preview-label">分段设置：</span>
+                      <span class="preview-value">
+                        每段{{ workflowConfig.segmentationConfig.segmentDurationSeconds }}秒，
+                        最多{{ workflowConfig.segmentationConfig.maxSegmentCount }}段
+                      </span>
+                    </div>
+                  </div>
+                </el-form-item>
+              </el-form>
+            </el-tab-pane>
+            
             <!-- 下载配置标签页 -->
             <el-tab-pane label="下载配置" name="download">
               <el-form :model="downloadConfig" label-width="100px">
@@ -587,7 +685,20 @@ export default {
         { value: 181, label: '影视' },
         { value: 217, label: '动物圈' }
       ],
-      selectedPartsWithConfig: []
+      selectedPartsWithConfig: [],
+      // 工作流配置
+      workflowConfig: {
+        enableDirectSubmission: true,
+        segmentationConfig: {
+          enabled: false,
+          segmentDurationSeconds: 133,
+          maxSegmentCount: 50,
+          preserveOriginal: true
+        },
+        enableClipping: true,
+        enableMerging: true
+      },
+      enabledProcessingSteps: ['clipping', 'merging']
     }
   },
   computed: {
@@ -613,6 +724,26 @@ export default {
           })
         })
       }
+    },
+    
+    // 监听工作流配置变化
+    'workflowConfig.enableDirectSubmission': function(newVal) {
+      // 更新分段配置的启用状态
+      this.workflowConfig.segmentationConfig.enabled = !newVal
+      
+      // 更新处理步骤
+      this.updateEnabledProcessingSteps()
+      
+      // 验证配置
+      this.validateWorkflowConfig()
+    },
+    
+    'workflowConfig.segmentationConfig.segmentDurationSeconds': function(newVal) {
+      this.validateSegmentationConfig()
+    },
+    
+    'workflowConfig.segmentationConfig.maxSegmentCount': function(newVal) {
+      this.validateSegmentationConfig()
     }
   },
   mounted() {
@@ -1305,6 +1436,9 @@ export default {
         return
       }
       
+      // 初始化工作流配置
+      this.initializeWorkflowConfig()
+      
       // 初始化投稿配置
       this.initializeSubmissionConfig()
       
@@ -1313,7 +1447,64 @@ export default {
       
       // 显示对话框
       this.integrationDialogVisible = true
-      this.integrationActiveTab = 'download'
+      this.integrationActiveTab = 'workflow'
+    },
+    
+    // 初始化工作流配置
+    initializeWorkflowConfig() {
+      // 使用下载+投稿的默认配置
+      this.workflowConfig = {
+        enableDirectSubmission: true,
+        segmentationConfig: {
+          enabled: false,
+          segmentDurationSeconds: 133,
+          maxSegmentCount: 50,
+          preserveOriginal: true
+        },
+        enableClipping: true,
+        enableMerging: true
+      }
+      
+      // 更新处理步骤
+      this.updateEnabledProcessingSteps()
+    },
+    
+    // 更新启用的处理步骤
+    updateEnabledProcessingSteps() {
+      this.enabledProcessingSteps = ['clipping', 'merging']
+      
+      if (!this.workflowConfig.enableDirectSubmission) {
+        this.enabledProcessingSteps.push('segmentation')
+      }
+    },
+    
+    // 验证工作流配置
+    validateWorkflowConfig() {
+      if (!this.workflowConfig.enableDirectSubmission) {
+        return this.validateSegmentationConfig()
+      }
+      return { valid: true }
+    },
+    
+    // 验证分段配置
+    validateSegmentationConfig() {
+      const config = this.workflowConfig.segmentationConfig
+      
+      if (config.segmentDurationSeconds < 30 || config.segmentDurationSeconds > 600) {
+        return {
+          valid: false,
+          message: '分段时长必须在30-600秒之间'
+        }
+      }
+      
+      if (config.maxSegmentCount < 1 || config.maxSegmentCount > 100) {
+        return {
+          valid: false,
+          message: '最大分段数量必须在1-100之间'
+        }
+      }
+      
+      return { valid: true }
     },
     
     // 初始化投稿配置
@@ -1394,6 +1585,12 @@ export default {
     
     // 验证集成表单
     async validateIntegrationForm() {
+      // 验证工作流配置
+      const workflowValidation = this.validateWorkflowConfig()
+      if (!workflowValidation.valid) {
+        return workflowValidation
+      }
+      
       // 验证下载配置
       if (!this.downloadConfig.resolution) {
         return { valid: false, message: '请选择分辨率' }
@@ -1465,6 +1662,19 @@ export default {
     buildIntegrationRequest() {
       return {
         enableSubmission: true,
+        workflowConfig: {
+          userId: 'current_user', // TODO: 从用户会话获取真实用户ID
+          enableDirectSubmission: this.workflowConfig.enableDirectSubmission,
+          enableClipping: this.workflowConfig.enableClipping,
+          enableMerging: this.workflowConfig.enableMerging,
+          segmentationConfig: {
+            enabled: !this.workflowConfig.enableDirectSubmission,
+            segmentDurationSeconds: this.workflowConfig.segmentationConfig.segmentDurationSeconds,
+            maxSegmentCount: this.workflowConfig.segmentationConfig.maxSegmentCount,
+            segmentNamingPattern: '{title}_Part{index}',
+            preserveOriginal: this.workflowConfig.segmentationConfig.preserveOriginal
+          }
+        },
         downloadRequest: {
           videoUrl: this.videoInfo.bvid ? 
             `https://www.bilibili.com/video/${this.videoInfo.bvid}` : 
@@ -1514,7 +1724,23 @@ export default {
       }
       
       if (result.relationId) {
-        message += `关联ID: ${result.relationId}`
+        message += `关联ID: ${result.relationId}\n`
+      }
+      
+      if (result.workflowInstanceId) {
+        message += `工作流实例ID: ${result.workflowInstanceId}\n`
+        message += `工作流状态: 已启动\n`
+      }
+      
+      // 显示工作流配置信息
+      if (this.workflowConfig) {
+        message += '\n工作流配置:\n'
+        message += `处理模式: ${this.workflowConfig.enableDirectSubmission ? '直接投稿' : '分段处理后投稿'}\n`
+        
+        if (!this.workflowConfig.enableDirectSubmission) {
+          message += `分段时长: ${this.workflowConfig.segmentationConfig.segmentDurationSeconds}秒\n`
+          message += `最大分段数: ${this.workflowConfig.segmentationConfig.maxSegmentCount}个\n`
+        }
       }
       
       this.$alert(message, '任务创建成功', {
@@ -1728,6 +1954,56 @@ export default {
   font-size: 12px;
   color: #909399;
   font-family: monospace;
+}
+
+/* 工作流配置样式 */
+.segmentation-config {
+  background-color: #f8f9fa;
+  padding: 15px;
+  border-radius: 4px;
+  margin: 15px 0;
+  border-left: 4px solid #409eff;
+}
+
+.workflow-preview {
+  background-color: #f5f7fa;
+  padding: 15px;
+  border-radius: 4px;
+  border: 1px solid #e4e7ed;
+}
+
+.preview-item {
+  display: flex;
+  margin-bottom: 8px;
+}
+
+.preview-item:last-child {
+  margin-bottom: 0;
+}
+
+.preview-label {
+  font-weight: 500;
+  color: #606266;
+  min-width: 80px;
+}
+
+.preview-value {
+  color: #303133;
+  flex: 1;
+}
+
+/* 工作流配置表单样式 */
+.el-radio-group .el-radio {
+  margin-right: 20px;
+}
+
+.el-checkbox-group .el-checkbox {
+  margin-right: 20px;
+  margin-bottom: 10px;
+}
+
+.el-input-number {
+  width: 150px;
 }
 
 /* 投稿配置表单样式 */

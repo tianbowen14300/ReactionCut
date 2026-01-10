@@ -93,4 +93,23 @@ public interface SubmissionTaskService {
      * @return 分段列表
      */
     List<TaskOutputSegment> getSegmentsByTaskIdAndUploadStatus(String taskId, TaskOutputSegment.UploadStatus status);
+    
+    // ==================== 异步处理方法 ====================
+    
+    /**
+     * 异步提交任务
+     * @param taskId 任务ID
+     * @param callback 完成回调
+     */
+    void submitTaskAsync(String taskId, SubmissionCallback callback);
+    
+    // ==================== 回调接口定义 ====================
+    
+    /**
+     * 投稿完成回调接口
+     */
+    @FunctionalInterface
+    interface SubmissionCallback {
+        void onComplete(boolean success, String result, String errorMessage);
+    }
 }

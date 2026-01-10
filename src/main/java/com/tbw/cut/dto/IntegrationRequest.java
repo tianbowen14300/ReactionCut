@@ -1,5 +1,6 @@
 package com.tbw.cut.dto;
 
+import com.tbw.cut.workflow.model.WorkflowConfig;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
@@ -30,6 +31,11 @@ public class IntegrationRequest {
      * 投稿请求数据
      */
     private SubmissionRequestDTO submissionRequest;
+    
+    /**
+     * 工作流配置
+     */
+    private WorkflowConfig workflowConfig;
     
     /**
      * 是否启用投稿功能
@@ -69,5 +75,24 @@ public class IntegrationRequest {
      */
     public Object getEffectiveDownloadRequest() {
         return downloadRequestRaw != null ? downloadRequestRaw : downloadRequest;
+    }
+    
+    /**
+     * 检查是否有工作流配置
+     */
+    public boolean hasWorkflowConfig() {
+        return workflowConfig != null;
+    }
+    
+    /**
+     * 获取有效的工作流配置（如果没有则返回默认配置）
+     */
+    public WorkflowConfig getEffectiveWorkflowConfig() {
+        if (workflowConfig != null) {
+            return workflowConfig;
+        }
+        
+        // 返回下载+投稿的默认配置
+        return WorkflowConfig.createForDownloadSubmission(userId != null ? userId : "anonymous");
     }
 }

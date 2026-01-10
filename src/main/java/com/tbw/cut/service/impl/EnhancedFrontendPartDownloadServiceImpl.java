@@ -7,6 +7,7 @@ import com.tbw.cut.service.download.model.*;
 import com.tbw.cut.bilibili.BilibiliService;
 import com.tbw.cut.bilibili.BilibiliUtils;
 import com.tbw.cut.service.PartDownloadService;
+import com.tbw.cut.event.DownloadEventPublisher;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
@@ -40,7 +41,13 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
     private PartDownloadService partDownloadService;
     
     @Autowired
+    private com.tbw.cut.service.VideoDownloadService videoDownloadService;
+    
+    @Autowired
     private com.tbw.cut.service.download.queue.VideoDownloadQueueManager videoDownloadQueueManager;
+    
+    @Autowired
+    private DownloadEventPublisher downloadEventPublisher;
     
     // 分辨率映射表
     private static final Map<String, String> RESOLUTION_LABEL_MAP;
@@ -223,7 +230,10 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
                                                          convertFrontendConfigToBilibiliParams(config));
                 
                 if (streamUrl != null) {
-                    String outputFileName = (i + 1) + ".mp4";
+                    // 修复：使用originalTitle构建文件路径，而不是简单的序号
+                    String sanitizedTitle = partTitle != null ? 
+                        partTitle.replaceAll("[\\\\/:*?\"<>|]", "_") : ("Part_" + (i + 1));
+                    String outputFileName = sanitizedTitle + ".mp4";
                     String outputPath = downloadPath.resolve(outputFileName).toString();
                     
                     VideoPart.VideoPartBuilder videoPartBuilder = VideoPart.builder()
@@ -253,15 +263,17 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
                             extraParams.put("videoUrl", videoUrl);
                             videoPartBuilder.extraParams(extraParams);
                             
-                            log.info("创建DASH合并VideoPart: cid={}, videoUrl={}, audioUrl={}", 
-                                    cid, videoUrl.substring(0, Math.min(100, videoUrl.length())) + "...",
+                            log.info("创建DASH合并VideoPart: cid={}, title={}, outputPath={}, videoUrl={}, audioUrl={}", 
+                                    cid, partTitle, outputPath,
+                                    videoUrl.substring(0, Math.min(100, videoUrl.length())) + "...",
                                     audioUrl.substring(0, Math.min(100, audioUrl.length())) + "...");
                         } else {
                             log.error("DASH URL格式错误: {}", streamUrl);
                             continue;
                         }
                     } else {
-                        log.info("创建普通VideoPart: cid={}, title={}, url={}", cid, partTitle, 
+                        log.info("创建普通VideoPart: cid={}, title={}, outputPath={}, url={}", 
+                                cid, partTitle, outputPath,
                                 streamUrl.substring(0, Math.min(100, streamUrl.length())) + "...");
                     }
                     
@@ -278,10 +290,53 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
     
     /**
      * 创建分P下载记录
+     * 修复：检查记录是否已存在，避免重复创建
      */
-    private List<Long> createPartDownloadRecords(List<VideoPart> videoParts, String title, 
+    private List<Long> createPartDownloadRecords(List<VideoPart> videoParts, String videoTitle, 
                                                 String bvid, String aid, Map<String, Object> config) {
         List<Long> partTaskIds = new ArrayList<>();
+        
+        log.info("=== 检查分P下载记录是否已存在 ===");
+        log.info("视频标题: {}", videoTitle);
+        log.info("BVID: {}, AID: {}", bvid, aid);
+        log.info("分P数量: {}", videoParts.size());
+        
+        // 检查是否已有相关的下载记录（最近5分钟内创建的）
+        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<com.tbw.cut.entity.VideoDownload> queryWrapper = 
+            new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
+        
+        if (bvid != null && !bvid.isEmpty()) {
+            queryWrapper.eq("bvid", bvid);
+        } else if (aid != null && !aid.isEmpty()) {
+            queryWrapper.eq("aid", aid);
+        }
+        
+        java.time.LocalDateTime cutoffTime = java.time.LocalDateTime.now().minusMinutes(5);
+        queryWrapper.ge("create_time", cutoffTime);
+        queryWrapper.orderByAsc("current_part");
+        
+        List<com.tbw.cut.entity.VideoDownload> existingRecords = videoDownloadService.list(queryWrapper);
+        
+        if (!existingRecords.isEmpty()) {
+            log.info("发现已存在的下载记录，数量: {}，跳过创建新记录", existingRecords.size());
+            
+            // 使用已存在的记录，更新VideoPart的数据库ID
+            for (int i = 0; i < Math.min(videoParts.size(), existingRecords.size()); i++) {
+                VideoPart part = videoParts.get(i);
+                com.tbw.cut.entity.VideoDownload existingRecord = existingRecords.get(i);
+                
+                part.setDatabaseId(existingRecord.getId());
+                partTaskIds.add(existingRecord.getId());
+                
+                log.info("✅ 使用已存在的分P记录: id={}, title={}, localPath={}", 
+                        existingRecord.getId(), existingRecord.getTitle(), existingRecord.getLocalPath());
+            }
+            
+            log.info("=== 使用已存在记录完成，总计: {} ===", partTaskIds.size());
+            return partTaskIds;
+        }
+        
+        log.info("=== 未发现已存在记录，开始创建新的分P下载记录 ===");
         
         for (int i = 0; i < videoParts.size(); i++) {
             VideoPart part = videoParts.get(i);
@@ -289,8 +344,11 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
             com.tbw.cut.entity.VideoDownload partDownload = new com.tbw.cut.entity.VideoDownload();
             partDownload.setBvid(bvid);
             partDownload.setAid(aid);
-            partDownload.setTitle(title);
-            partDownload.setPartTitle(part.getTitle());
+            
+            // 修复：使用分P的标题作为title字段，而不是视频总标题
+            partDownload.setTitle(part.getTitle()); // 这里是originalTitle
+            partDownload.setPartTitle(part.getTitle()); // 保持一致性
+            
             partDownload.setPartCount(videoParts.size());
             partDownload.setCurrentPart(part.getPartIndex());
             partDownload.setDownloadUrl(part.getUrl());
@@ -313,17 +371,32 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
             partDownload.setStatus(0); // Pending
             partDownload.setProgress(0);
             
+            // 修复：设置local_path为预期的下载路径（与videoParts.filePath保持一致）
+            // 这个路径应该是downloadPath + originalTitle的组合
+            if (part.getOutputPath() != null) {
+                partDownload.setLocalPath(part.getOutputPath());
+                log.info("设置local_path: {}", part.getOutputPath());
+            } else {
+                partDownload.setLocalPath(null);
+                log.warn("VideoPart的outputPath为null，local_path设置为null");
+            }
+            
+            log.info("创建分P下载记录[{}]: cid={}, title={}, partTitle={}, localPath={}, outputPath={}", 
+                    i, part.getCid(), part.getTitle(), part.getTitle(), partDownload.getLocalPath(), part.getOutputPath());
+            
             Long partTaskId = partDownloadService.createPartDownload(partDownload);
             if (partTaskId != null) {
                 partTaskIds.add(partTaskId);
                 // 关键修复：将数据库ID存储到VideoPart中，用于后续进度更新
                 part.setDatabaseId(partTaskId);
-                log.info("成功创建分P下载记录，数据库ID: {}, CID: {}", partTaskId, part.getCid());
+                log.info("✅ 成功创建分P下载记录，数据库ID: {}, CID: {}, title: {}, local_path: {}", 
+                        partTaskId, part.getCid(), part.getTitle(), partDownload.getLocalPath());
             } else {
-                log.error("创建分P下载记录失败，cid: {}", part.getCid());
+                log.error("❌ 创建分P下载记录失败，cid: {}", part.getCid());
             }
         }
         
+        log.info("=== 分P下载记录创建完成，总计: {} ===", partTaskIds.size());
         return partTaskIds;
     }
     
@@ -353,22 +426,98 @@ public class EnhancedFrontendPartDownloadServiceImpl implements FrontendPartDown
      * 处理下载结果
      */
     private void handleDownloadResult(DownloadResult result, List<Long> partTaskIds, List<VideoPart> videoParts) {
+        log.info("=== 处理下载结果 ===");
+        log.info("下载结果状态: {}", result.isSuccess());
+        log.info("分P任务数量: {}", partTaskIds.size());
+        log.info("视频分P数量: {}", videoParts.size());
+        
         if (result.isSuccess()) {
-            log.info("所有分P下载成功，文件数量: {}", result.getFilePaths().size());
+            List<String> filePaths = result.getFilePaths();
+            log.info("下载成功，文件路径数量: {}", filePaths != null ? filePaths.size() : 0);
             
-            // 更新所有分P任务为完成状态
-            for (int i = 0; i < partTaskIds.size() && i < result.getFilePaths().size(); i++) {
-                Long partTaskId = partTaskIds.get(i);
-                String filePath = result.getFilePaths().get(i);
-                
-                if (filePath != null) {
-                    partDownloadService.completePartDownload(partTaskId, filePath);
-                    log.info("分P任务完成: taskId={}, filePath={}", partTaskId, filePath);
-                } else {
-                    partDownloadService.failPartDownload(partTaskId, "下载文件路径为空");
-                    log.error("分P任务失败: taskId={}, 文件路径为空", partTaskId);
+            if (filePaths != null) {
+                for (int i = 0; i < filePaths.size(); i++) {
+                    log.info("文件路径[{}]: {}", i, filePaths.get(i));
                 }
             }
+            
+            // 检查数据一致性
+            if (filePaths == null || filePaths.isEmpty()) {
+                log.error("下载成功但文件路径列表为空，这是一个严重问题");
+                handleDownloadFailure(new RuntimeException("下载成功但文件路径列表为空"), partTaskIds);
+                return;
+            }
+            
+            if (partTaskIds.size() != filePaths.size()) {
+                log.warn("分P任务数量({})与文件路径数量({})不匹配", partTaskIds.size(), filePaths.size());
+            }
+            
+            // 更新所有分P任务为完成状态
+            int successCount = 0;
+            int failureCount = 0;
+            
+            for (int i = 0; i < partTaskIds.size() && i < filePaths.size(); i++) {
+                Long partTaskId = partTaskIds.get(i);
+                String filePath = filePaths.get(i);
+                
+                log.info("处理分P任务[{}]: taskId={}, filePath={}", i, partTaskId, filePath);
+                
+                if (filePath != null && !filePath.trim().isEmpty()) {
+                    // 验证文件是否真实存在
+                    java.io.File file = new java.io.File(filePath);
+                    if (file.exists() && file.length() > 0) {
+                        partDownloadService.completePartDownload(partTaskId, filePath);
+                        log.info("✅ 分P任务完成: taskId={}, filePath={}, fileSize={} bytes", 
+                                partTaskId, filePath, file.length());
+                        successCount++;
+                    } else {
+                        partDownloadService.failPartDownload(partTaskId, "下载文件不存在或大小为0: " + filePath);
+                        log.error("❌ 分P任务失败: taskId={}, 文件不存在或大小为0: {}", partTaskId, filePath);
+                        failureCount++;
+                    }
+                } else {
+                    partDownloadService.failPartDownload(partTaskId, "下载文件路径为空");
+                    log.error("❌ 分P任务失败: taskId={}, 文件路径为空", partTaskId);
+                    failureCount++;
+                }
+            }
+            
+            // 处理剩余的任务（如果任务数量多于文件路径数量）
+            for (int i = filePaths.size(); i < partTaskIds.size(); i++) {
+                Long partTaskId = partTaskIds.get(i);
+                partDownloadService.failPartDownload(partTaskId, "没有对应的下载文件路径");
+                log.error("❌ 分P任务失败: taskId={}, 没有对应的下载文件路径", partTaskId);
+                failureCount++;
+            }
+            
+            log.info("=== 下载结果处理完成: 成功={}, 失败={} ===", successCount, failureCount);
+            
+            // 新增：发布下载完成事件
+            if (successCount > 0 && successCount == partTaskIds.size()) {
+                // 所有分P都下载成功，发布完成事件
+                Long primaryDownloadTaskId = partTaskIds.get(0); // 使用第一个分P的ID作为主ID
+                List<String> validFilePaths = filePaths.stream()
+                        .filter(path -> path != null && !path.trim().isEmpty())
+                        .collect(Collectors.toList());
+                
+                if (!validFilePaths.isEmpty()) {
+                    try {
+                        downloadEventPublisher.publishDownloadCompletionEvent(primaryDownloadTaskId, validFilePaths);
+                        log.info("✅ 已发布下载完成事件: primaryTaskId={}, fileCount={}", 
+                                primaryDownloadTaskId, validFilePaths.size());
+                    } catch (Exception e) {
+                        log.error("❌ 发布下载完成事件失败: primaryTaskId={}, error={}", 
+                                primaryDownloadTaskId, e.getMessage(), e);
+                    }
+                } else {
+                    log.warn("⚠️ 没有有效的文件路径，跳过事件发布: primaryTaskId={}", primaryDownloadTaskId);
+                }
+            } else if (successCount > 0) {
+                log.info("⚠️ 部分分P下载成功({}/{}), 不发布完成事件", successCount, partTaskIds.size());
+            } else {
+                log.warn("⚠️ 所有分P下载都失败，不发布完成事件");
+            }
+            
         } else {
             log.error("下载失败: {}", result.getErrorMessage());
             handleDownloadFailure(new RuntimeException(result.getErrorMessage()), partTaskIds);

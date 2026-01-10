@@ -5,6 +5,7 @@ import com.tbw.cut.bilibili.BilibiliApiClient;
 import com.tbw.cut.bilibili.service.BilibiliVideoUploadService;
 import com.tbw.cut.bilibili.service.RateLimitHandler;
 import com.tbw.cut.bilibili.service.UploadProgressManager;
+import com.tbw.cut.bilibili.retry.VideoInfoRetryHandler;
 import com.tbw.cut.entity.UploadProgress;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,8 +37,25 @@ public class BilibiliVideoUploadServiceImpl implements BilibiliVideoUploadServic
     @Autowired
     private UploadProgressManager uploadProgressManager;
     
+    @Autowired
+    private VideoInfoRetryHandler videoInfoRetryHandler;
+    
     @Value("${bilibili.member.base-url:https://member.bilibili.com}")
     private String memberBaseUrl;
+    
+    /**
+     * Initialize the retry handler with function interfaces
+     */
+    @javax.annotation.PostConstruct
+    private void initializeRetryHandler() {
+        // Set up the AID retriever function
+        videoInfoRetryHandler.setAidRetriever(this::getAidFromBvidDirect);
+        
+        // Set up the video info retriever function  
+        videoInfoRetryHandler.setVideoInfoRetriever(this::getVideoInfoDirect);
+        
+        log.info("VideoInfoRetryHandler initialized with function interfaces");
+    }
     
     @Override
     public JSONObject preUploadVideo(String fileName, long fileSize) {
@@ -871,52 +889,48 @@ public class BilibiliVideoUploadServiceImpl implements BilibiliVideoUploadServic
     
     @Override
     public Long getAidFromBvid(String bvid) {
-        int maxRetries = 3;
-        int retryCount = 0;
-        
-        while (retryCount < maxRetries) {
-            try {
-                // 使用B站API获取视频信息
-                String url = "https://api.bilibili.com/x/web-interface/view";
-                String fullUrl = url + "?bvid=" + bvid;
-                log.info("获取视频信息: {}", fullUrl);
-                
-                // 发送GET请求
-                String response = callGetVideoInfoApi(fullUrl);
-                JSONObject result = JSONObject.parseObject(response);
-                
-                if (result.getIntValue("code") == 0) {
-                    JSONObject data = result.getJSONObject("data");
-                    if (data != null && data.containsKey("aid")) {
-                        Long aid = data.getLong("aid");
-                        log.info("成功获取AID: {}, BVID: {}", aid, bvid);
-                        return aid;
-                    }
-                }
-                
-                log.error("获取AID失败，响应: {}", result.toJSONString());
-                return null;
-            } catch (Exception e) {
-                retryCount++;
-                log.error("获取AID失败，第{}次尝试: {}", retryCount, e.getMessage(), e);
-                
-                if (retryCount < maxRetries) {
-                    // 等待2^retryCount秒再重试（指数退避）
-                    try {
-                        Thread.sleep((long) Math.pow(2, retryCount) * 1000);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw new RuntimeException("线程中断", ie);
-                    }
-                } else {
-                    // 达到最大重试次数，返回null
-                    log.error("获取AID失败，已达到最大重试次数: {}", e.getMessage(), e);
-                    return null;
-                }
-            }
+        if (bvid == null || bvid.trim().isEmpty()) {
+            log.warn("Invalid BVID provided: {}", bvid);
+            return null;
         }
         
-        return null;
+        log.info("Getting AID for BVID with retry handler: {}", bvid);
+        return videoInfoRetryHandler.getAidWithRetry(bvid);
+    }
+    
+    /**
+     * Direct AID retrieval without retry logic (used by retry handler)
+     */
+    private Long getAidFromBvidDirect(String bvid) {
+        try {
+            // 使用B站API获取视频信息
+            String url = "https://api.bilibili.com/x/web-interface/view";
+            String fullUrl = url + "?bvid=" + bvid;
+            log.debug("Direct AID retrieval: {}", fullUrl);
+            
+            // 发送GET请求
+            String response = callGetVideoInfoApi(fullUrl);
+            JSONObject result = JSONObject.parseObject(response);
+            
+            if (result.getIntValue("code") == 0) {
+                JSONObject data = result.getJSONObject("data");
+                if (data != null && data.containsKey("aid")) {
+                    Long aid = data.getLong("aid");
+                    log.debug("Direct AID retrieval successful: {}, BVID: {}", aid, bvid);
+                    return aid;
+                }
+            } else if (result.getIntValue("code") == -404) {
+                // 404错误，视频不存在或还未处理完成
+                log.debug("Video not found (404) for BVID: {}, message: {}", bvid, result.getString("message"));
+                return null;
+            }
+            
+            log.debug("Direct AID retrieval failed, response: {}", result.toJSONString());
+            return null;
+        } catch (Exception e) {
+            log.debug("Direct AID retrieval exception for BVID {}: {}", bvid, e.getMessage());
+            throw new RuntimeException("Failed to retrieve AID: " + e.getMessage(), e);
+        }
     }
     
     private String callGetVideoInfoApi(String url) throws IOException {
@@ -1009,53 +1023,56 @@ public class BilibiliVideoUploadServiceImpl implements BilibiliVideoUploadServic
     
     @Override
     public JSONObject getVideoInfo(Long aid) {
-        int maxRetries = 3;
-        int retryCount = 0;
-        
-        while (retryCount < maxRetries) {
-            try {
-                // 使用B站API获取视频详细信息
-                String url = "https://api.bilibili.com/x/web-interface/view";
-                String fullUrl = url + "?aid=" + aid;
-                log.info("获取视频详细信息: {}", fullUrl);
-                
-                // 发送GET请求
-                String response = callGetVideoInfoApi(fullUrl);
-                JSONObject result = JSONObject.parseObject(response);
-                
-                if (result.getIntValue("code") == 0) {
-                    log.info("成功获取视频信息，AID: {}", aid);
-                    return result;
-                }
-                
-                log.error("获取视频信息失败，响应: {}", result.toJSONString());
-                return result;
-            } catch (Exception e) {
-                retryCount++;
-                log.error("获取视频信息失败，第{}次尝试: {}", retryCount, e.getMessage(), e);
-                
-                if (retryCount < maxRetries) {
-                    // 等待2^retryCount秒再重试（指数退避）
-                    try {
-                        Thread.sleep((long) Math.pow(2, retryCount) * 1000);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw new RuntimeException("线程中断", ie);
-                    }
-                } else {
-                    // 达到最大重试次数，返回错误结果
-                    log.error("获取视频信息失败，已达到最大重试次数: {}", e.getMessage(), e);
-                    JSONObject errorResult = new JSONObject();
-                    errorResult.put("code", -1);
-                    errorResult.put("message", "获取视频信息失败: " + e.getMessage());
-                    return errorResult;
-                }
-            }
+        if (aid == null) {
+            log.warn("Invalid AID provided: null");
+            JSONObject errorResult = new JSONObject();
+            errorResult.put("code", -1);
+            errorResult.put("message", "Invalid AID provided");
+            return errorResult;
         }
         
-        JSONObject errorResult = new JSONObject();
-        errorResult.put("code", -1);
-        errorResult.put("message", "获取视频信息失败，已达到最大重试次数");
-        return errorResult;
+        log.info("Getting video info for AID with retry handler: {}", aid);
+        JSONObject result = videoInfoRetryHandler.getVideoInfoWithRetry(aid);
+        
+        if (result == null) {
+            // Return error result if retry handler failed
+            JSONObject errorResult = new JSONObject();
+            errorResult.put("code", -1);
+            errorResult.put("message", "Failed to retrieve video info after retries");
+            return errorResult;
+        }
+        
+        return result;
+    }
+    
+    /**
+     * Direct video info retrieval without retry logic (used by retry handler)
+     */
+    private JSONObject getVideoInfoDirect(Long aid) {
+        try {
+            // 使用B站API获取视频详细信息
+            String url = "https://api.bilibili.com/x/web-interface/view";
+            String fullUrl = url + "?aid=" + aid;
+            log.debug("Direct video info retrieval: {}", fullUrl);
+            
+            // 发送GET请求
+            String response = callGetVideoInfoApi(fullUrl);
+            JSONObject result = JSONObject.parseObject(response);
+            
+            if (result.getIntValue("code") == 0) {
+                log.debug("Direct video info retrieval successful, AID: {}", aid);
+                return result;
+            } else if (result.getIntValue("code") == -404) {
+                // 404错误，视频不存在或还未处理完成
+                log.debug("Video info not found (404) for AID: {}, message: {}", aid, result.getString("message"));
+                return null;
+            }
+            
+            log.debug("Direct video info retrieval failed, response: {}", result.toJSONString());
+            return null;
+        } catch (Exception e) {
+            log.debug("Direct video info retrieval exception for AID {}: {}", aid, e.getMessage());
+            throw new RuntimeException("Failed to retrieve video info: " + e.getMessage(), e);
+        }
     }
 }

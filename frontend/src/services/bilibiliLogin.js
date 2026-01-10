@@ -4,7 +4,7 @@
  */
 
 import qrcode from 'qrcode-generator'
-import { generateQRCode, pollQRCodeStatus } from '@/api/bilibiliAuth'
+import { generateQRCode, pollQRCodeStatus } from '../api/bilibiliAuth'
 
 /**
  * 生成二维码

@@ -100,4 +100,63 @@ public interface TaskRelationMapper extends BaseMapper<TaskRelation> {
      */
     @Update("DELETE FROM task_relations WHERE submission_task_id = #{submissionTaskId}")
     int deleteBySubmissionTaskId(@Param("submissionTaskId") String submissionTaskId);
+    
+    /**
+     * 根据工作流状态查找关联关系
+     */
+    @Select("SELECT * FROM task_relations WHERE workflow_status = #{workflowStatus} ORDER BY created_at DESC")
+    List<TaskRelation> findByWorkflowStatus(@Param("workflowStatus") TaskRelation.WorkflowStatus workflowStatus);
+    
+    /**
+     * 统计指定工作流状态的关联数量
+     */
+    @Select("SELECT COUNT(*) FROM task_relations WHERE workflow_status = #{workflowStatus}")
+    long countByWorkflowStatus(@Param("workflowStatus") TaskRelation.WorkflowStatus workflowStatus);
+    
+    /**
+     * 查找可重试的工作流任务
+     */
+    @Select("SELECT * FROM task_relations WHERE workflow_status IN ('WORKFLOW_STARTUP_FAILED', 'WORKFLOW_FAILED') " +
+            "AND (retry_count IS NULL OR retry_count < #{maxRetryCount}) " +
+            "ORDER BY updated_at ASC")
+    List<TaskRelation> findRetryableWorkflowTasks(@Param("maxRetryCount") int maxRetryCount);
+    
+    /**
+     * 更新工作流信息
+     */
+    @Update("UPDATE task_relations SET " +
+            "workflow_instance_id = #{workflowInstanceId}, " +
+            "workflow_status = #{workflowStatus}, " +
+            "workflow_started_at = NOW(), " +
+            "updated_at = NOW() " +
+            "WHERE download_task_id = #{downloadTaskId} AND submission_task_id = #{submissionTaskId}")
+    int updateWorkflowInfo(@Param("downloadTaskId") Long downloadTaskId,
+                          @Param("submissionTaskId") String submissionTaskId,
+                          @Param("workflowInstanceId") String workflowInstanceId,
+                          @Param("workflowStatus") TaskRelation.WorkflowStatus workflowStatus);
+    
+    /**
+     * 根据投稿任务ID更新工作流信息
+     */
+    @Update("UPDATE task_relations SET " +
+            "workflow_instance_id = #{workflowInstanceId}, " +
+            "workflow_status = #{workflowStatus}, " +
+            "workflow_started_at = NOW(), " +
+            "updated_at = NOW() " +
+            "WHERE submission_task_id = #{submissionTaskId}")
+    int updateWorkflowInfoBySubmissionId(@Param("submissionTaskId") String submissionTaskId,
+                                        @Param("workflowInstanceId") String workflowInstanceId,
+                                        @Param("workflowStatus") TaskRelation.WorkflowStatus workflowStatus);
+    
+    /**
+     * 记录工作流错误信息
+     */
+    @Update("UPDATE task_relations SET " +
+            "last_error_message = #{errorMessage}, " +
+            "retry_count = COALESCE(retry_count, 0) + 1, " +
+            "updated_at = NOW() " +
+            "WHERE download_task_id = #{downloadTaskId} AND submission_task_id = #{submissionTaskId}")
+    int recordWorkflowError(@Param("downloadTaskId") Long downloadTaskId,
+                           @Param("submissionTaskId") String submissionTaskId,
+                           @Param("errorMessage") String errorMessage);
 }

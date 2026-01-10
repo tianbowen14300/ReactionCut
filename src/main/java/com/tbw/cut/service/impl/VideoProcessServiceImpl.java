@@ -1026,4 +1026,66 @@ public class VideoProcessServiceImpl implements VideoProcessService {
             }
         }
     }
+    
+    // ==================== 异步处理方法实现 ====================
+    
+    @Override
+    public void clipVideosAsync(String taskId, ProcessingCallback callback) {
+        log.info("异步执行视频剪辑: taskId={}", taskId);
+        
+        // 使用线程池异步执行
+        new Thread(() -> {
+            try {
+                List<String> outputPaths = clipVideos(taskId);
+                if (outputPaths != null && !outputPaths.isEmpty()) {
+                    callback.onComplete(true, outputPaths, null);
+                } else {
+                    callback.onComplete(false, null, "剪辑处理未生成输出文件");
+                }
+            } catch (Exception e) {
+                log.error("异步视频剪辑异常: taskId={}", taskId, e);
+                callback.onComplete(false, null, "剪辑处理异常: " + e.getMessage());
+            }
+        }).start();
+    }
+    
+    @Override
+    public void mergeVideosAsync(String taskId, MergingCallback callback) {
+        log.info("异步执行视频合并: taskId={}", taskId);
+        
+        // 使用线程池异步执行
+        new Thread(() -> {
+            try {
+                String outputPath = mergeVideos(taskId);
+                if (outputPath != null && !outputPath.isEmpty()) {
+                    callback.onComplete(true, outputPath, null);
+                } else {
+                    callback.onComplete(false, null, "合并处理未生成输出文件");
+                }
+            } catch (Exception e) {
+                log.error("异步视频合并异常: taskId={}", taskId, e);
+                callback.onComplete(false, null, "合并处理异常: " + e.getMessage());
+            }
+        }).start();
+    }
+    
+    @Override
+    public void segmentVideoAsync(String taskId, ProcessingCallback callback) {
+        log.info("异步执行视频分段: taskId={}", taskId);
+        
+        // 使用线程池异步执行
+        new Thread(() -> {
+            try {
+                List<String> outputPaths = segmentVideo(taskId);
+                if (outputPaths != null && !outputPaths.isEmpty()) {
+                    callback.onComplete(true, outputPaths, null);
+                } else {
+                    callback.onComplete(false, null, "分段处理未生成输出文件");
+                }
+            } catch (Exception e) {
+                log.error("异步视频分段异常: taskId={}", taskId, e);
+                callback.onComplete(false, null, "分段处理异常: " + e.getMessage());
+            }
+        }).start();
+    }
 }

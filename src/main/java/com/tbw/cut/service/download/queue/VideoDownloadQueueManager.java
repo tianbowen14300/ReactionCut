@@ -3,9 +3,11 @@ package com.tbw.cut.service.download.queue;
 import com.tbw.cut.service.download.model.*;
 import com.tbw.cut.service.download.segmented.SegmentedDownloadManager;
 import com.tbw.cut.service.download.logging.DownloadTimeLogger;
+import com.tbw.cut.event.DownloadStatusChangeEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
@@ -33,6 +35,9 @@ public class VideoDownloadQueueManager {
     
     @Autowired
     private DownloadTimeLogger downloadTimeLogger;
+    
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
     
     // 待下载队列（优先级队列）
     private final PriorityBlockingQueue<VideoDownloadTask> pendingQueue = 
@@ -211,6 +216,17 @@ public class VideoDownloadQueueManager {
         
         log.info("Video download completed: {} (success: {}, active: {}/{})", 
             task.getTaskId(), result.isSuccess(), activeDownloads.size(), maxConcurrentVideos);
+        
+        // **新增：发布下载状态变化事件**
+        try {
+            Integer downloadStatus = result.isSuccess() ? 2 : 3; // 2=完成, 3=失败
+            DownloadStatusChangeEvent event = DownloadStatusChangeEvent.create(task.getTaskId(), null, downloadStatus);
+            eventPublisher.publishEvent(event);
+            log.info("Published download status change event: taskId={}, status={}", task.getTaskId(), downloadStatus);
+        } catch (Exception e) {
+            log.error("Failed to publish download status change event: taskId={}", task.getTaskId(), e);
+            // 不抛出异常，避免影响主流程
+        }
         
         // 启动队列中的下一个任务
         processQueue();

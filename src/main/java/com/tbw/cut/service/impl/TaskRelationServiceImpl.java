@@ -260,4 +260,133 @@ public class TaskRelationServiceImpl implements TaskRelationService {
             return false;
         }
     }
+    
+    @Override
+    public String findSubmissionTaskByDownloadId(Long downloadTaskId) {
+        try {
+            Optional<TaskRelation> relation = findByDownloadTaskId(downloadTaskId);
+            return relation.map(TaskRelation::getSubmissionTaskId).orElse(null);
+        } catch (Exception e) {
+            log.error("Failed to find submission task by download ID: {}", downloadTaskId, e);
+            return null;
+        }
+    }
+    
+    @Override
+    public List<TaskRelation> findPendingWorkflowTasks() {
+        try {
+            return taskRelationMapper.findByWorkflowStatus(TaskRelation.WorkflowStatus.PENDING_DOWNLOAD);
+        } catch (Exception e) {
+            log.error("Failed to find pending workflow tasks", e);
+            return Collections.emptyList();
+        }
+    }
+    
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean updateWorkflowInfo(Long downloadTaskId, String submissionTaskId, 
+                                    String workflowInstanceId, String workflowStatus) {
+        try {
+            TaskRelation.WorkflowStatus status = TaskRelation.WorkflowStatus.valueOf(workflowStatus);
+            int updated = taskRelationMapper.updateWorkflowInfo(downloadTaskId, submissionTaskId, 
+                    workflowInstanceId, status);
+            
+            boolean success = updated > 0;
+            if (success) {
+                log.info("Updated workflow info: downloadTaskId={}, submissionTaskId={}, " +
+                        "workflowInstanceId={}, status={}", 
+                        downloadTaskId, submissionTaskId, workflowInstanceId, workflowStatus);
+            } else {
+                log.warn("No relation found to update workflow info: downloadTaskId={}, submissionTaskId={}", 
+                        downloadTaskId, submissionTaskId);
+            }
+            
+            return success;
+        } catch (Exception e) {
+            log.error("Failed to update workflow info: downloadTaskId={}, submissionTaskId={}, " +
+                    "workflowInstanceId={}, status={}", 
+                    downloadTaskId, submissionTaskId, workflowInstanceId, workflowStatus, e);
+            return false;
+        }
+    }
+    
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean updateWorkflowInfoBySubmissionId(String submissionTaskId, 
+                                                   String workflowInstanceId, String workflowStatus) {
+        try {
+            TaskRelation.WorkflowStatus status = TaskRelation.WorkflowStatus.valueOf(workflowStatus);
+            int updated = taskRelationMapper.updateWorkflowInfoBySubmissionId(submissionTaskId, 
+                    workflowInstanceId, status);
+            
+            boolean success = updated > 0;
+            if (success) {
+                log.info("Updated workflow info by submission ID: submissionTaskId={}, " +
+                        "workflowInstanceId={}, status={}", 
+                        submissionTaskId, workflowInstanceId, workflowStatus);
+            } else {
+                log.warn("No relation found to update workflow info: submissionTaskId={}", submissionTaskId);
+            }
+            
+            return success;
+        } catch (Exception e) {
+            log.error("Failed to update workflow info by submission ID: submissionTaskId={}, " +
+                    "workflowInstanceId={}, status={}", 
+                    submissionTaskId, workflowInstanceId, workflowStatus, e);
+            return false;
+        }
+    }
+    
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean recordWorkflowError(Long downloadTaskId, String submissionTaskId, String errorMessage) {
+        try {
+            int updated = taskRelationMapper.recordWorkflowError(downloadTaskId, submissionTaskId, errorMessage);
+            
+            boolean success = updated > 0;
+            if (success) {
+                log.info("Recorded workflow error: downloadTaskId={}, submissionTaskId={}, error={}", 
+                        downloadTaskId, submissionTaskId, errorMessage);
+            } else {
+                log.warn("No relation found to record workflow error: downloadTaskId={}, submissionTaskId={}", 
+                        downloadTaskId, submissionTaskId);
+            }
+            
+            return success;
+        } catch (Exception e) {
+            log.error("Failed to record workflow error: downloadTaskId={}, submissionTaskId={}, error={}", 
+                    downloadTaskId, submissionTaskId, errorMessage, e);
+            return false;
+        }
+    }
+    
+    @Override
+    public List<TaskRelation> findByWorkflowStatus(TaskRelation.WorkflowStatus workflowStatus) {
+        try {
+            return taskRelationMapper.findByWorkflowStatus(workflowStatus);
+        } catch (Exception e) {
+            log.error("Failed to find relations by workflow status: {}", workflowStatus, e);
+            return Collections.emptyList();
+        }
+    }
+    
+    @Override
+    public long countByWorkflowStatus(TaskRelation.WorkflowStatus workflowStatus) {
+        try {
+            return taskRelationMapper.countByWorkflowStatus(workflowStatus);
+        } catch (Exception e) {
+            log.error("Failed to count relations by workflow status: {}", workflowStatus, e);
+            return 0;
+        }
+    }
+    
+    @Override
+    public List<TaskRelation> findRetryableWorkflowTasks(int maxRetryCount) {
+        try {
+            return taskRelationMapper.findRetryableWorkflowTasks(maxRetryCount);
+        } catch (Exception e) {
+            log.error("Failed to find retryable workflow tasks with maxRetryCount: {}", maxRetryCount, e);
+            return Collections.emptyList();
+        }
+    }
 }

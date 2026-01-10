@@ -5,12 +5,14 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.tbw.cut.entity.VideoDownload;
 import com.tbw.cut.mapper.VideoDownloadMapper;
 import com.tbw.cut.service.VideoDownloadService;
+import com.tbw.cut.event.DownloadStatusChangeEvent;
 import com.tbw.cut.dto.VideoDownloadDTO;
 import com.tbw.cut.bilibili.BilibiliUtils;
 import com.tbw.cut.utils.FFmpegUtil;
 import com.tbw.cut.bilibili.BilibiliService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -25,6 +27,9 @@ public class VideoDownloadServiceImpl extends ServiceImpl<VideoDownloadMapper, V
     
     @Autowired
     private BilibiliService bilibiliService;
+    
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
     
     @Override
     public Long downloadVideo(VideoDownloadDTO dto) {
@@ -80,6 +85,16 @@ public class VideoDownloadServiceImpl extends ServiceImpl<VideoDownloadMapper, V
             download.setUpdateTime(LocalDateTime.now());
             this.updateById(download);
             log.info("Video download completed, Task ID: {}, Path: {}", taskId, localPath);
+            
+            // **新增：发布下载完成事件**
+            try {
+                DownloadStatusChangeEvent event = DownloadStatusChangeEvent.create(taskId, null, 2);
+                eventPublisher.publishEvent(event);
+                log.info("Published download completion event for video task: taskId={}", taskId);
+            } catch (Exception e) {
+                log.error("Failed to publish download completion event for video task: taskId={}", taskId, e);
+                // 不抛出异常，避免影响主流程
+            }
         }
     }
     
@@ -91,6 +106,16 @@ public class VideoDownloadServiceImpl extends ServiceImpl<VideoDownloadMapper, V
             download.setUpdateTime(LocalDateTime.now());
             this.updateById(download);
             log.error("Video download failed, Task ID: {}, Error: {}", taskId, errorMessage);
+            
+            // **新增：发布下载失败事件**
+            try {
+                DownloadStatusChangeEvent event = DownloadStatusChangeEvent.create(taskId, null, 3);
+                eventPublisher.publishEvent(event);
+                log.info("Published download failure event for video task: taskId={}", taskId);
+            } catch (Exception e) {
+                log.error("Failed to publish download failure event for video task: taskId={}", taskId, e);
+                // 不抛出异常，避免影响主流程
+            }
         }
     }
     
@@ -121,5 +146,40 @@ public class VideoDownloadServiceImpl extends ServiceImpl<VideoDownloadMapper, V
     @Override
     public boolean deleteDownloadRecord(Long taskId) {
         return this.removeById(taskId);
+    }
+    
+    @Override
+    public List<VideoDownload> findRecentDownloads(String bvid, String title, int limit) {
+        QueryWrapper<VideoDownload> queryWrapper = new QueryWrapper<>();
+        
+        if (bvid != null && !bvid.isEmpty()) {
+            queryWrapper.eq("bvid", bvid);
+        }
+        
+        if (title != null && !title.isEmpty()) {
+            queryWrapper.eq("title", title);
+        }
+        
+        queryWrapper.orderByDesc("create_time");
+        queryWrapper.last("LIMIT " + limit);
+        
+        return this.list(queryWrapper);
+    }
+    
+    @Override
+    public List<VideoDownload> getRecentDownloads(int limit) {
+        QueryWrapper<VideoDownload> queryWrapper = new QueryWrapper<>();
+        queryWrapper.orderByDesc("create_time");
+        queryWrapper.last("LIMIT " + limit);
+        return this.list(queryWrapper);
+    }
+    
+    @Override
+    public List<VideoDownload> findCompletedWithEmptyLocalPath() {
+        QueryWrapper<VideoDownload> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("status", 2); // 已完成
+        queryWrapper.and(wrapper -> wrapper.isNull("local_path").or().eq("local_path", ""));
+        queryWrapper.orderByDesc("create_time");
+        return this.list(queryWrapper);
     }
 }

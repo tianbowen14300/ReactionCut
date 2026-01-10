@@ -49,3 +49,109 @@ queue:
     batch-interval-ms: 5000
     min-task-interval-ms: 5000
     estimated-task-duration-minutes: 10
+
+# Bilibili 视频信息重试配置
+bilibili:
+  video:
+    retry:
+      # 最大重试次数
+      max-attempts: 5
+      # 初始延迟时间（毫秒）
+      initial-delay-ms: 1000
+      # 最大延迟时间（毫秒）
+      max-delay-ms: 30000
+      # 退避倍数
+      backoff-multiplier: 2.0
+      # 抖动因子（0.0-1.0）
+      jitter-factor: 0.1
+      # 熔断器阈值
+      circuit-breaker-threshold: 10
+      # 熔断器超时时间（毫秒）
+      circuit-breaker-timeout-ms: 60000
+      # 缓存TTL（分钟）
+      cache-ttl-minutes: 5
+      # 缓存最大大小
+      cache-max-size: 1000
+      # 最大并发重试数
+      max-concurrent-attempts: 10
+
+# Spring Boot Actuator 配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,retry-metrics
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+    retry-metrics:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# 工作流时序配置
+workflow:
+  timing:
+    # 是否启用事件驱动的工作流启动
+    event-driven-enabled: true
+    # 是否启用降级到立即启动模式
+    fallback-to-immediate-start: false
+    # 事件处理超时时间（秒）
+    event-timeout-seconds: 300
+    # 最大重试次数
+    max-retry-attempts: 3
+    # 重试间隔时间（毫秒）
+    retry-interval-millis: 5000
+    # 批量处理大小
+    batch-processing-size: 10
+    # 配置过期时间（小时）
+    config-expiry-hours: 24
+    # 失败事件保留天数
+    failed-event-retention-days: 7
+    # 是否启用定时任务
+    scheduled-tasks-enabled: true
+    
+    # 定时任务间隔配置
+    scheduled-tasks:
+      # 检查待处理工作流任务的间隔（毫秒）
+      pending-task-check-interval: 30000
+      # 重试失败工作流的间隔（毫秒）
+      failed-workflow-retry-interval: 300000
+      # 清理过期配置的间隔（毫秒）
+      config-cleanup-interval: 3600000
+      # 输出统计信息的间隔（毫秒）
+      stats-report-interval: 600000
+    
+    # 监控配置
+    monitoring:
+      # 是否启用监控
+      enabled: true
+      # 监控指标收集间隔（毫秒）
+      metrics-collection-interval: 60000
+      
+      # 性能阈值配置
+      thresholds:
+        # 工作流启动延迟告警阈值（毫秒）
+        workflow-startup-delay-threshold: 300000
+        # 工作流启动失败率告警阈值（百分比）
+        workflow-startup-failure-rate-threshold: 5.0
+        # 事件发布失败率告警阈值（百分比）
+        event-publish-failure-rate-threshold: 1.0
+        # 待处理任务数量告警阈值
+        pending-task-count-threshold: 100
+    
+    # 告警配置
+    alert:
+      # 是否启用告警
+      enabled: true
+      # 告警发送间隔（毫秒）
+      alert-interval: 900000
+      # 告警接收人邮箱列表
+      recipients: []
+      # 钉钉机器人Webhook URL
+      ding-talk-webhook: ""
+      # 企业微信机器人Webhook URL
+      wechat-webhook: ""

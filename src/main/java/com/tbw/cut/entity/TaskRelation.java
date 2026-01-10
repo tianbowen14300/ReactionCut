@@ -62,6 +62,36 @@ public class TaskRelation {
     private LocalDateTime updatedAt;
     
     /**
+     * 工作流实例ID
+     */
+    @TableField("workflow_instance_id")
+    private String workflowInstanceId;
+    
+    /**
+     * 工作流状态
+     */
+    @TableField("workflow_status")
+    private WorkflowStatus workflowStatus;
+    
+    /**
+     * 工作流启动时间
+     */
+    @TableField("workflow_started_at")
+    private LocalDateTime workflowStartedAt;
+    
+    /**
+     * 最后错误信息
+     */
+    @TableField("last_error_message")
+    private String lastErrorMessage;
+    
+    /**
+     * 重试次数
+     */
+    @TableField("retry_count")
+    private Integer retryCount;
+    
+    /**
      * 关联类型枚举
      */
     public enum RelationType {
@@ -97,6 +127,41 @@ public class TaskRelation {
     }
     
     /**
+     * 工作流状态枚举
+     */
+    public enum WorkflowStatus {
+        /**
+         * 等待下载完成
+         */
+        PENDING_DOWNLOAD,
+        
+        /**
+         * 工作流已启动
+         */
+        WORKFLOW_STARTED,
+        
+        /**
+         * 工作流运行中
+         */
+        WORKFLOW_RUNNING,
+        
+        /**
+         * 工作流已完成
+         */
+        WORKFLOW_COMPLETED,
+        
+        /**
+         * 工作流失败
+         */
+        WORKFLOW_FAILED,
+        
+        /**
+         * 工作流启动失败
+         */
+        WORKFLOW_STARTUP_FAILED
+    }
+    
+    /**
      * 创建集成关联的便捷方法
      */
     public static TaskRelation createIntegratedRelation(Long downloadTaskId, String submissionTaskId) {
@@ -105,6 +170,10 @@ public class TaskRelation {
                 .submissionTaskId(submissionTaskId)
                 .relationType(RelationType.INTEGRATED)
                 .status(RelationStatus.ACTIVE)
+                .workflowStatus(WorkflowStatus.PENDING_DOWNLOAD)
+                .retryCount(0)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
                 .build();
     }
     
@@ -117,6 +186,8 @@ public class TaskRelation {
                 .submissionTaskId(submissionTaskId)
                 .relationType(RelationType.MANUAL)
                 .status(RelationStatus.ACTIVE)
+                .workflowStatus(WorkflowStatus.PENDING_DOWNLOAD)
+                .retryCount(0)
                 .build();
     }
     
@@ -146,5 +217,63 @@ public class TaskRelation {
      */
     public void markFailed() {
         this.status = RelationStatus.FAILED;
+    }
+    
+    /**
+     * 检查工作流是否等待下载完成
+     */
+    public boolean isPendingDownload() {
+        return WorkflowStatus.PENDING_DOWNLOAD.equals(this.workflowStatus);
+    }
+    
+    /**
+     * 检查工作流是否已启动
+     */
+    public boolean isWorkflowStarted() {
+        return WorkflowStatus.WORKFLOW_STARTED.equals(this.workflowStatus) ||
+               WorkflowStatus.WORKFLOW_RUNNING.equals(this.workflowStatus);
+    }
+    
+    /**
+     * 检查工作流是否已完成
+     */
+    public boolean isWorkflowCompleted() {
+        return WorkflowStatus.WORKFLOW_COMPLETED.equals(this.workflowStatus);
+    }
+    
+    /**
+     * 检查工作流是否失败
+     */
+    public boolean isWorkflowFailed() {
+        return WorkflowStatus.WORKFLOW_FAILED.equals(this.workflowStatus) ||
+               WorkflowStatus.WORKFLOW_STARTUP_FAILED.equals(this.workflowStatus);
+    }
+    
+    /**
+     * 更新工作流信息
+     */
+    public void updateWorkflowInfo(String workflowInstanceId, WorkflowStatus workflowStatus) {
+        this.workflowInstanceId = workflowInstanceId;
+        this.workflowStatus = workflowStatus;
+        this.workflowStartedAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now();
+    }
+    
+    /**
+     * 记录工作流错误
+     */
+    public void recordWorkflowError(String errorMessage) {
+        this.lastErrorMessage = errorMessage;
+        this.retryCount = (this.retryCount == null) ? 1 : this.retryCount + 1;
+        this.updatedAt = LocalDateTime.now();
+    }
+    
+    /**
+     * 重置重试计数
+     */
+    public void resetRetryCount() {
+        this.retryCount = 0;
+        this.lastErrorMessage = null;
+        this.updatedAt = LocalDateTime.now();
     }
 }

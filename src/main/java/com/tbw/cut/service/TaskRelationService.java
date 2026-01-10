@@ -158,4 +158,68 @@ public interface TaskRelationService {
      * @return 是否存在关联
      */
     boolean relationExists(Long downloadTaskId, String submissionTaskId);
+    
+    /**
+     * 根据下载任务ID查找关联的投稿任务ID
+     * @param downloadTaskId 下载任务ID
+     * @return 投稿任务ID，如果未找到返回null
+     */
+    String findSubmissionTaskByDownloadId(Long downloadTaskId);
+    
+    /**
+     * 查找等待下载完成的工作流任务
+     * @return 等待下载完成的任务关联列表
+     */
+    List<TaskRelation> findPendingWorkflowTasks();
+    
+    /**
+     * 更新工作流信息
+     * @param downloadTaskId 下载任务ID
+     * @param submissionTaskId 投稿任务ID
+     * @param workflowInstanceId 工作流实例ID
+     * @param workflowStatus 工作流状态
+     * @return 是否更新成功
+     */
+    boolean updateWorkflowInfo(Long downloadTaskId, String submissionTaskId, 
+                              String workflowInstanceId, String workflowStatus);
+    
+    /**
+     * 根据投稿任务ID更新工作流信息
+     * @param submissionTaskId 投稿任务ID
+     * @param workflowInstanceId 工作流实例ID
+     * @param workflowStatus 工作流状态
+     * @return 是否更新成功
+     */
+    boolean updateWorkflowInfoBySubmissionId(String submissionTaskId, 
+                                           String workflowInstanceId, String workflowStatus);
+    
+    /**
+     * 记录工作流错误信息
+     * @param downloadTaskId 下载任务ID
+     * @param submissionTaskId 投稿任务ID
+     * @param errorMessage 错误信息
+     * @return 是否更新成功
+     */
+    boolean recordWorkflowError(Long downloadTaskId, String submissionTaskId, String errorMessage);
+    
+    /**
+     * 查找指定工作流状态的任务关联
+     * @param workflowStatus 工作流状态
+     * @return 任务关联列表
+     */
+    List<TaskRelation> findByWorkflowStatus(TaskRelation.WorkflowStatus workflowStatus);
+    
+    /**
+     * 统计指定工作流状态的关联数量
+     * @param workflowStatus 工作流状态
+     * @return 关联数量
+     */
+    long countByWorkflowStatus(TaskRelation.WorkflowStatus workflowStatus);
+    
+    /**
+     * 查找需要重试的工作流任务
+     * @param maxRetryCount 最大重试次数
+     * @return 需要重试的任务关联列表
+     */
+    List<TaskRelation> findRetryableWorkflowTasks(int maxRetryCount);
 }

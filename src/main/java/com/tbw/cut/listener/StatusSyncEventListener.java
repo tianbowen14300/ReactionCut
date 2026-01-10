@@ -31,8 +31,8 @@ public class StatusSyncEventListener {
             return;
         }
         
-        log.info("Received download status change event: taskId={}, oldStatus={}, newStatus={}", 
-                event.getTaskId(), event.getOldStatus(), event.getNewStatus());
+        log.debug("Received download status change event: taskId={}, oldStatus={}, newStatus={}, source={}", 
+                event.getTaskId(), event.getOldStatus(), event.getNewStatus(), event.getSource());
         
         try {
             statusSyncService.handleDownloadStatusChange(
